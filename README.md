@@ -1,64 +1,151 @@
-# Krems Obsidian Publisher Plugin
+# Krems Obsidian Plugin
 
-This plugin allows you to manage and publish your [Krems](https://github.com/mreider/krems) static site directly from Obsidian.
+This plugin allows you to publish a markdown website to Github Pages using [Krems](https://github.com/mreider/krems) from Obsidian.
 
 ## How It Works
 
-1.  **Configure:** In the plugin settings, specify:
-    *   Your GitHub repository URL (e.g., `https://github.com/username/your-repo`). **Must be HTTPS.**
-    *   The path within your Obsidian vault where your Krems site's markdown files are located.
-    *   A **GitHub Personal Access Token (PAT)**. This is required for pushing changes to your repository via HTTPS. See "Creating a Personal Access Token" below.
-2.  **Actions (via Ribbon Icon):**
-    *   **Initialize Local Directory:** Clones a Krems example site (`https://github.com/mreider/krems-example`) into your specified local directory and updates the Git remote to point to your repository.
-    *   **Start/Stop Krems Locally:** Runs `krems --run` to build and serve your site locally for preview at `http://localhost:8080`.
-    *   **Push Site to GitHub:** Commits and pushes the contents of your local Krems markdown directory to your configured GitHub repository. This typically triggers a GitHub Action (like `krems-deploy-action`) in your repository to build and deploy the site to GitHub Pages.
+### Sign up for a Github account
 
-## Prerequisites & Setup
+1. Go to [github.com](https://github.com)
+2. Click **Sign up** in the top right corner
 
-### 1. GitHub Repository
+### Download and Configure Git
 
-*   **Create a new GitHub repository** for your Krems site if you don't have one.
-*   **Important:** The plugin pushes your markdown source files to this repository. You'll need a separate mechanism (like the `mreider/krems-deploy-action` GitHub Action) in that repository to build the HTML from these markdown files and deploy it to GitHub Pages.
+#### macOS (Homebrew)
+```bash
+brew install git
+```
 
-### 2. GitHub Pages Setup (Chicken & Egg)
+#### Windows
+Download from [git-scm.com](https://git-scm.com/download/win) or use package manager:
+```powershell
+# Using Chocolatey
+choco install git
 
-*   GitHub Pages typically deploys from a specific branch (e.g., `gh-pages`) and a specific folder (often root or `/docs`).
-*   **Initial Push:** You might need to push content to your repository *once* (e.g., an empty commit or the initial markdown files via this plugin) to create the main branch (e.g., `main` or `master`).
-*   **Set Up GitHub Pages:**
-    1.  Go to your repository on GitHub -> Settings -> Pages.
-    2.  Under "Build and deployment", select "Deploy from a branch" as your source.
-    3.  Choose the branch your deployment action (e.g., `krems-deploy-action`) will push the built HTML site to (commonly `gh-pages`).
-    4.  Select the folder within that branch (usually `/ (root)`).
-    5.  Save changes.
+# Using winget
+winget install Git.Git
+```
 
-### 3. (Recommended) `krems-deploy-action`
+### Initial Configuration
 
-*   For automated building and deployment to GitHub Pages, it's highly recommended to set up the `mreider/krems-deploy-action` (or a similar GitHub Action) in your site's GitHub repository. This action will listen for pushes to your main branch, run Krems to build the HTML, and then push the HTML to your `gh-pages` branch (or as configured).
+Set your identity (required):
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
 
-### 4. Creating a Personal Access Token (PAT) for GitHub
+### SSH Setup
 
-Since GitHub no longer supports password authentication for Git operations over HTTPS, you **must** use a Personal Access Token (PAT) if your repository URL is HTTPS.
+Generate SSH key:
+```bash
+ssh-keygen -t ed25519 -C "your.email@example.com"
+```
 
-1.  Go to your GitHub settings:
-    *   Click your profile picture (top-right) -> Settings.
-    *   In the left sidebar, scroll down to Developer settings.
-    *   Click Personal access tokens -> Tokens (classic).
-2.  Click "Generate new token" (or "Generate new token (classic)").
-3.  Give your token a descriptive name (e.g., "Obsidian Krems Plugin").
-4.  Set an expiration date for the token.
-5.  Under "Select scopes", check the following scopes:
-    *   **`repo`**: Grants full control of repositories. This is needed for cloning, reading, and pushing changes to your site's repository.
-    *   **`workflow`**: Grants permission to add and update GitHub Actions workflows. This is required if your push operations might create or modify files within the `.github/workflows/` directory of your repository (e.g., if the `krems-example` site you clone includes a workflow, or if you add one).
-6.  Click "Generate token".
-7.  **Important:** Copy your new PAT immediately. You won't be able to see it again.
-8.  Paste this PAT into the "GitHub Personal Access Token (PAT)" field in this plugin's settings.
+Add to SSH agent:
+```bash
+# macOS
+ssh-add ~/.ssh/id_ed25519
 
-## Using the Plugin
+# Windows (Git Bash)
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+```
 
-1.  Install the plugin in Obsidian.
-2.  Configure the settings.
-3.  Click the "Krems Publisher" (cloud-lightning icon) in the left ribbon to access actions.
+Copy public key to clipboard:
+```bash
+# macOS
+pbcopy < ~/.ssh/id_ed25519.pub
 
----
+# Windows
+clip < ~/.ssh/id_ed25519.pub
+```
 
-*This plugin primarily manages your local Krems markdown source and pushes it to GitHub. The actual live site deployment is typically handled by a GitHub Action in your target repository.*
+### Add the public key to GitHub
+
+- Go to [github.com](https://github.com)
+- Click your profile picture (top right)
+- Select **Settings**
+- Click **SSH and GPG keys** in the left sidebar
+- Click **New SSH key**
+- Give it a descriptive title (e.g., "MacBook Pro", "Work Laptop")
+- Paste your public key in the **Key** field
+- Click **Add SSH key**
+- Enter your GitHub password if prompted
+
+### Create a new Github repository
+
+![new repository](images/1.create.png)
+
+### Name it after your blog
+
+![new repository](images/2.create.png)
+
+### Create a GitHub Classic Personal Access Token
+
+- Go to [github.com](https://github.com)
+- Click your profile picture (top right)
+- Select **Settings**
+- Click **Developer settings** (bottom of left sidebar)
+- Click **Personal access tokens**
+- Select **Tokens (classic)**
+- Click **Generate new token**
+- Select **Generate new token (classic)**
+- Give it a descriptive name (e.g., "Workflow automation", "CI/CD token")
+- Choose appropriate duration (30 days, 90 days, 1 year, or custom)
+- Required permissions:
+- ✅ `repo` (Full control of private repositories)
+    - This includes all sub-scopes: repo:status, repo_deployment, public_repo, repo:invite, security_events
+- ✅ `workflow` (Update GitHub Action workflows)
+- Copy the token immediately - you won't see it again
+
+### Install BRAT
+
+1. Open Obsidian
+2. Go to **Settings** > **Community plugins**
+3. Disable **Safe mode** if not already done
+4. Click **Browse** community plugins
+5. Search for "BRAT"
+6. Install and enable the **Obsidian BRAT** plugin
+
+### Install Krems Plugin via BRAT
+
+1. **Open BRAT settings**
+   - Go to **Settings** > **BRAT**
+
+2. **Add the plugin**
+   - Click **Add Beta plugin**
+   - Enter the GitHub repository URL:
+     ```
+     https://github.com/mreider/krems-obsidian-plugin
+     ```
+   - Click **Add Plugin**
+
+3. **Enable auto-updates** (optional)
+
+### Enable the Plugin
+
+1. Go to **Settings** > **Community plugins**
+2. Find **Krems** in the installed plugins list
+3. Toggle it **on**
+
+### Create an empty directory in your vault (ex: my-blog)
+
+### Krems setup
+
+![obsidian settings](images/4.settings.png)
+
+1. Enter your blog URL (ex: https://github.com/mreider/my-blog)
+2. Enter your empty directory name (ex: my-blog)
+3. Enter your personal access token
+4. Enter your author name and email
+5. Keep the port default unless that port is in use
+
+### Run Krems Plugin
+
+Click **Initialize**. This will copy the small example from https://github.com/mreider/krems-example
+
+![init](images/5.init.png)
+
+### Run the site locally
+
+Click **Browse Locally** to see the site in a browser on your local machine.
