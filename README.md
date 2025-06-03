@@ -5,9 +5,9 @@ This plugin allows you to manage and publish your [Krems](https://github.com/mre
 ## How It Works
 
 1.  **Configure:** In the plugin settings, specify:
-    *   Your GitHub repository URL (e.g., `https://github.com/username/your-repo`).
+    *   Your GitHub repository URL (e.g., `https://github.com/username/your-repo`). **Must be HTTPS.**
     *   The path within your Obsidian vault where your Krems site's markdown files are located.
-    *   Optionally, a Git password or Personal Access Token (PAT) if needed for pushing to your repository (PAT is recommended).
+    *   A **GitHub Personal Access Token (PAT)**. This is required for pushing changes to your repository via HTTPS. See "Creating a Personal Access Token" below.
 2.  **Actions (via Ribbon Icon):**
     *   **Initialize Local Directory:** Clones a Krems example site (`https://github.com/mreider/krems-example`) into your specified local directory and updates the Git remote to point to your repository.
     *   **Start/Stop Krems Locally:** Runs `krems --run` to build and serve your site locally for preview at `http://localhost:8080`.
@@ -34,6 +34,22 @@ This plugin allows you to manage and publish your [Krems](https://github.com/mre
 ### 3. (Recommended) `krems-deploy-action`
 
 *   For automated building and deployment to GitHub Pages, it's highly recommended to set up the `mreider/krems-deploy-action` (or a similar GitHub Action) in your site's GitHub repository. This action will listen for pushes to your main branch, run Krems to build the HTML, and then push the HTML to your `gh-pages` branch (or as configured).
+
+### 4. Creating a Personal Access Token (PAT) for GitHub
+
+Since GitHub no longer supports password authentication for Git operations over HTTPS, you **must** use a Personal Access Token (PAT) if your repository URL is HTTPS.
+
+1.  Go to your GitHub settings:
+    *   Click your profile picture (top-right) -> Settings.
+    *   In the left sidebar, scroll down to Developer settings.
+    *   Click Personal access tokens -> Tokens (classic).
+2.  Click "Generate new token" (or "Generate new token (classic)").
+3.  Give your token a descriptive name (e.g., "Obsidian Krems Plugin").
+4.  Set an expiration date for the token.
+5.  Under "Select scopes", check the **`repo`** scope. This will grant full control of private and public repositories, which is needed for cloning and pushing.
+6.  Click "Generate token".
+7.  **Important:** Copy your new PAT immediately. You won't be able to see it again.
+8.  Paste this PAT into the "GitHub Personal Access Token (PAT)" field in this plugin's settings.
 
 ## Using the Plugin
 

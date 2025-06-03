@@ -429,13 +429,13 @@ class KremsSettingTab extends PluginSettingTab {
 			}
 		});
 
-		// 3. Git Token/Password Setting
+		// 3. GitHub Personal Access Token (PAT) Setting
 		new Setting(containerEl)
-			.setName('Git Token/Password (Optional)')
-			.setDesc('Enter your Git password or Personal Access Token (PAT) if required for push operations. PAT is recommended for security.')
+			.setName('GitHub Personal Access Token (PAT)')
+			.setDesc('Required for pushing to HTTPS repositories. Create a PAT on GitHub with "repo" scope. See plugin README for instructions.')
 			.addText(text => {
 				text.inputEl.type = 'password';
-				text.setPlaceholder('Enter your Git token/password')
+				text.setPlaceholder('Enter your GitHub PAT')
 					.setValue(this.plugin.settings.gitPassword || '')
 					.onChange(async (value) => {
 						this.plugin.settings.gitPassword = value;
