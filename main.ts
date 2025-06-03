@@ -205,18 +205,10 @@ class ActionModal extends Modal {
 			setPushFeedback('Preparing to push site...', 'status');
 
 			try {
-				// Configure git user for this operation if not set
-				try {
-					await this.plugin.execShellCommand('git config user.name', absoluteLocalPath);
-					await this.plugin.execShellCommand('git config user.email', absoluteLocalPath);
-					// If these don't error, user is likely configured.
-					setPushFeedback('Git user identity found. Proceeding...', 'status');
-				} catch (configError) {
-					// User likely not configured, set a default for this repo
-					setPushFeedback('Git user identity not found, setting default for this commit...', 'status');
-					await this.plugin.execShellCommand('git config user.name "Krems Obsidian Plugin"', absoluteLocalPath);
-					await this.plugin.execShellCommand('git config user.email "krems-plugin@example.com"', absoluteLocalPath);
-				}
+				// Unconditionally set git user for this operation to ensure commit succeeds
+				setPushFeedback('Setting Git user identity for this operation...', 'status');
+				await this.plugin.execShellCommand('git config user.name "Krems Obsidian Plugin"', absoluteLocalPath);
+				await this.plugin.execShellCommand('git config user.email "krems-plugin@example.com"', absoluteLocalPath);
 
 				setPushFeedback('Adding files (git add .)...', 'status');
 				await this.plugin.execShellCommand('git add .', absoluteLocalPath);
