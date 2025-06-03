@@ -107,4 +107,4 @@ jobs:
       - name: Push changes (commit and tag)
         run: |
           git push origin HEAD # Push the commit
-          git push origin "v${{ steps.version.outputs.VERSION_NUMBER }}" # Push the tag
+          git push origin "v${{ steps.version.outputs.VERSION_NUMBER }}" --force # Push the tag, overwrite if it exists
