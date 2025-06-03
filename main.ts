@@ -108,8 +108,13 @@ export default class KremsObsidianPlugin extends Plugin {
 		}
 
 		const binaryDir = this.getKremsBinaryDir();
-		const binaryPath = path.join(binaryDir, binaryName);
-		this.settings.localKremsBinaryPath = binaryPath; // Store for later use (e.g. by clean)
+		const binaryPath = path.join(binaryDir, binaryName); // This is vault-relative
+
+		// @ts-ignore
+		const vaultBasePath = this.app.vault.adapter.getBasePath(); // Get vault's absolute base path
+		const absoluteBinaryPath = path.join(vaultBasePath, binaryPath); // Create absolute OS path for fs operations
+
+		this.settings.localKremsBinaryPath = binaryPath; // Store the vault-relative path for settings
 		await this.saveSettings();
 
 
@@ -117,12 +122,12 @@ export default class KremsObsidianPlugin extends Plugin {
 		const adapter = this.app.vault.adapter;
 
 		try {
-			if (await adapter.exists(binaryPath)) {
+			if (await adapter.exists(binaryPath)) { // adapter.exists uses vault-relative path
 				feedbackUpdater('Krems binary already downloaded.', 'status');
 				// Ensure it's executable (especially on mac/linux after unzipping/copying)
 				if (process.platform !== 'win32') {
 					try {
-						fs.chmodSync(binaryPath, 0o755);
+						fs.chmodSync(absoluteBinaryPath, 0o755); // Use absolute path for chmod
 					} catch (chmodErr) {
 						console.error("Failed to chmod existing binary:", chmodErr);
 						feedbackUpdater('Found Krems binary, but failed to set executable permission. Please check manually.', 'error');
@@ -155,10 +160,10 @@ export default class KremsObsidianPlugin extends Plugin {
 
 			if (process.platform !== 'win32') {
 				feedbackUpdater('Setting executable permissions...', 'status');
-				fs.chmodSync(binaryPath, 0o755); // Make it executable
+				fs.chmodSync(absoluteBinaryPath, 0o755); // Use absolute path for chmod
 				feedbackUpdater('Permissions set.', 'status');
 			}
-			return binaryPath;
+			return binaryPath; // Return vault-relative path
 
 		} catch (error: any) {
 			console.error('Krems download error:', error);
@@ -181,21 +186,17 @@ class ActionModal extends Modal {
 		this.plugin = plugin;
 	}
 
-	async checkIfDirIsEmpty(dirPath: string): Promise<boolean> {
+	// Checks if an EXISTING vault-relative folder path is empty.
+	// Caller must ensure the path exists and is a folder.
+	async checkIfDirIsEmpty(existingVaultRelativeFolderPath: string): Promise<boolean> {
 		try {
 			// @ts-ignore
 			const adapter = this.app.vault.adapter;
-			if (await adapter.exists(dirPath)) {
-				const stat = await adapter.stat(dirPath);
-				if (stat && stat.type === 'folder') {
-					const files = await adapter.list(dirPath);
-					return files.files.length === 0 && files.folders.length === 0;
-				}
-			}
-			return false; // Path doesn't exist or is not a folder, treat as "not suitable for non-empty check"
+			const contents = await adapter.list(existingVaultRelativeFolderPath); // Use vault-relative path
+			return contents.files.length === 0 && contents.folders.length === 0;
 		} catch (e) {
-			console.warn("Error checking if dir is empty:", e);
-			return false; // On error, assume not empty or problematic
+			console.warn(`Error listing contents of '${existingVaultRelativeFolderPath}':`, e);
+			return false; // On error, assume not empty as a safeguard
 		}
 	}
 
@@ -221,26 +222,46 @@ class ActionModal extends Modal {
 
 		// Initial check for initButton state
 		const localMarkdownPathForInit = this.plugin.settings.localMarkdownPath;
-		if (!localMarkdownPathForInit || !this.plugin.settings.githubRepoUrl) {
+		const githubRepoUrlSet = !!this.plugin.settings.githubRepoUrl;
+
+		if (!localMarkdownPathForInit || !githubRepoUrlSet) {
 			this.initButton.disabled = true;
 			initWarningEl.textContent = 'Please set Local Markdown Directory and GitHub Repo URL in settings.';
 			initWarningEl.style.display = 'block';
 		} else {
 			// @ts-ignore
-			const vaultBasePath = this.app.vault.adapter.getBasePath();
-			const absoluteLocalPathForInit = path.join(vaultBasePath, localMarkdownPathForInit);
-			this.checkIfDirIsEmpty(absoluteLocalPathForInit).then(isEmpty => {
-				// @ts-ignore (adapter.exists is async)
-				this.app.vault.adapter.exists(absoluteLocalPathForInit).then(async (exists: any) => {
-					if (exists && !isEmpty) {
+			const adapter = this.app.vault.adapter;
+
+			// @ts-ignore - adapter.stat() returns a Stat object or null.
+			adapter.stat(localMarkdownPathForInit).then(async (stat: { type: 'file' | 'folder', size: number, ctime: number, mtime: number } | null) => {
+				if (stat) { // Path exists
+					if (stat.type === 'folder') { // It's a folder
+						const isEmpty = await this.checkIfDirIsEmpty(localMarkdownPathForInit); // Pass vault-relative path
+						if (!isEmpty) {
+							this.initButton.disabled = true;
+							initWarningEl.textContent = `Directory '${localMarkdownPathForInit}' is not empty. Can only initialize empty directories.`;
+							initWarningEl.style.display = 'block';
+						} else {
+							// Directory exists, is a folder, and is empty
+							initWarningEl.style.display = 'none';
+							this.initButton.disabled = false;
+						}
+					} else { // It's a file, not a folder
 						this.initButton.disabled = true;
-						initWarningEl.textContent = `Directory '${localMarkdownPathForInit}' is not empty. Initialization disabled.`;
+						initWarningEl.textContent = `Path '${localMarkdownPathForInit}' is a file, not a directory. Initialization requires a directory path.`;
 						initWarningEl.style.display = 'block';
-					} else {
-						initWarningEl.style.display = 'none';
-						this.initButton.disabled = false;
 					}
-				});
+				} else { // Path does not exist (stat is null)
+					initWarningEl.style.display = 'none';
+					this.initButton.disabled = false; // OK to initialize if path doesn't exist
+				}
+			}).catch((err: any) => {
+				// This catch block might be for unexpected errors from adapter.stat,
+				// as non-existence usually results in `null` rather than an error.
+				console.error(`Error checking path '${localMarkdownPathForInit}' for init button state:`, err);
+				this.initButton.disabled = true;
+				initWarningEl.textContent = 'Error checking local directory status. Initialization disabled.';
+				initWarningEl.style.display = 'block';
 			});
 		}
 
@@ -351,14 +372,23 @@ class ActionModal extends Modal {
 			this.browseLocallyButton.disabled = true;
 			setBrowseFeedback('Preparing local preview...', 'status');
 
-			const kremsBinaryPath = await this.plugin.ensureKremsBinary(setBrowseFeedback);
-			if (!kremsBinaryPath) {
-				updateBrowseButtonsState(); // Re-enable button if download failed
+			const userConfirmed = confirm("To preview your site locally, this will download the Krems binary (if not already present) and set executable permissions. This step is for local preview and not strictly necessary for publishing to GitHub. Is it okay to proceed?");
+
+			if (!userConfirmed) {
+				setBrowseFeedback('Local preview cancelled by user.', 'status');
+				updateBrowseButtonsState();
+				return;
+			}
+
+			const kremsBinaryVaultRelativePath = await this.plugin.ensureKremsBinary(setBrowseFeedback);
+			if (!kremsBinaryVaultRelativePath) {
+				updateBrowseButtonsState(); // Re-enable button if download/chmod failed
 				return;
 			}
 			
 			// @ts-ignore
 			const vaultBasePath = this.app.vault.adapter.getBasePath();
+			const absoluteKremsBinaryPath = path.join(vaultBasePath, kremsBinaryVaultRelativePath); // Use absolute path for spawning
 			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
 			const portToUse = localRunPort || DEFAULT_KREMS_SETTINGS.localRunPort || "8080";
 
@@ -366,7 +396,7 @@ class ActionModal extends Modal {
 
 			try {
 				this.plugin.localKremsProcess = spawn(
-					kremsBinaryPath, 
+					absoluteKremsBinaryPath, // Use absolute path
 					['--run', '--port', portToUse], 
 					{ cwd: absoluteLocalPath, shell: process.platform === 'win32' } // shell: true for windows often helps with .exe
 				);
@@ -420,15 +450,17 @@ class ActionModal extends Modal {
 				updateBrowseButtonsState();
 			}
 			// Run --clean after stopping, if binary path is known
-			const kremsBinary = this.plugin.settings.localKremsBinaryPath;
+			const kremsBinaryVaultRelativePath = this.plugin.settings.localKremsBinaryPath;
 			const { localMarkdownPath } = this.plugin.settings;
-			if (kremsBinary && localMarkdownPath) {
+			if (kremsBinaryVaultRelativePath && localMarkdownPath) {
 				// @ts-ignore
 				const vaultBasePath = this.app.vault.adapter.getBasePath();
 				const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
+				const absoluteKremsBinaryPathForClean = path.join(vaultBasePath, kremsBinaryVaultRelativePath);
+
 				setBrowseFeedback('Cleaning up .tmp directory...', 'status');
 				try {
-					await this.plugin.execShellCommand(`"${kremsBinary}" --clean`, absoluteLocalPath, undefined, 'krems --clean');
+					await this.plugin.execShellCommand(`"${absoluteKremsBinaryPathForClean}" --clean`, absoluteLocalPath, undefined, 'krems --clean');
 					setBrowseFeedback('Cleanup successful.', 'status');
 				} catch (cleanError: any) {
 					console.error("Krems clean error:", cleanError);
