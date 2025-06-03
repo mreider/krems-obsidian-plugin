@@ -17,8 +17,7 @@ const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
 
 export default class KremsObsidianPlugin extends Plugin {
 	settings: KremsObsidianPluginSettings;
-	isKremsRunning: boolean = false; // To track Krems server state
-	kremsProcess: ChildProcess | null = null; // To hold the spawned Krems process
+	// isKremsRunning and kremsProcess removed as local server functionality is being removed
 
 	async onload() {
 		await this.loadSettings();
@@ -139,7 +138,18 @@ class ActionModal extends Modal {
 				// For this command, CWD can be anything as -C specifies the target repo.
 				// Using vaultBasePath again for consistency.
 				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath);
-				setInitFeedback('Directory initialized successfully!', 'success');
+				setInitFeedback('Remote URL set. Cleaning up README.md...', 'status');
+
+				// Delete README.md from the cloned directory
+				const readmePath = path.join(absoluteLocalPath, 'README.md');
+				// @ts-ignore
+				if (await this.app.vault.adapter.exists(readmePath)) {
+					// @ts-ignore
+					await this.app.vault.adapter.remove(readmePath);
+					setInitFeedback('Directory initialized successfully! README.md removed.', 'success');
+				} else {
+					setInitFeedback('Directory initialized successfully! (README.md not found to remove).', 'success');
+				}
 
 			} catch (error) {
 				console.error('Initialization error:', error);
@@ -154,120 +164,7 @@ class ActionModal extends Modal {
 			initSection.createEl('p', {text: 'Please set Local Markdown Directory and GitHub Repo URL in settings.', cls: 'krems-warning'});
 		}
 
-		// --- Run Krems Locally ---
-		const runSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		runSection.createEl('h4', { text: '2. Manage Local Krems Server' });
-		
-		const startButton = runSection.createEl('button', { text: 'Start Krems Locally' });
-		const stopButton = runSection.createEl('button', { text: 'Stop Krems Server' });
-		const kremsRunFeedbackEl = runSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px; white-space: pre-wrap; background-color: var(--background-secondary); padding: 5px; border-radius: 3px; max-height: 150px; overflow-y: auto;' } });
-
-		const setKremsRunFeedback = (message: string, type: 'status' | 'success' | 'error' | 'log') => {
-			if (type === 'log') {
-				kremsRunFeedbackEl.textContent += message + '\n'; // Append logs
-				kremsRunFeedbackEl.scrollTop = kremsRunFeedbackEl.scrollHeight; // Scroll to bottom
-			} else {
-				kremsRunFeedbackEl.textContent = message; // Overwrite for status/error/success
-			}
-			kremsRunFeedbackEl.className = `krems-feedback krems-feedback-${type}`;
-		};
-		
-		const updateKremsButtons = () => {
-			if (this.plugin.isKremsRunning) {
-				startButton.setText('Krems Server Running');
-				startButton.disabled = true;
-				stopButton.disabled = false;
-			} else {
-				startButton.setText('Start Krems Locally');
-				startButton.disabled = false;
-				stopButton.disabled = true;
-				// Optionally clear kremsRunFeedbackEl when not running or on explicit stop
-			}
-		};
-		updateKremsButtons(); // Initial state
-
-		startButton.addEventListener('click', async () => {
-			const { localMarkdownPath } = this.plugin.settings;
-			if (!localMarkdownPath) {
-				setKremsRunFeedback('Error: Local Markdown Directory must be set in plugin settings.', 'error');
-				return;
-			}
-			if (this.plugin.isKremsRunning || this.plugin.kremsProcess) {
-				setKremsRunFeedback('Krems is already running or process exists.', 'status');
-				return;
-			}
-
-			// @ts-ignore
-			const vaultBasePath = this.app.vault.adapter.getBasePath();
-			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
-
-			setKremsRunFeedback('Starting Krems server...', 'status');
-			startButton.disabled = true; // Disable while attempting to start
-
-			try {
-				// Ensure the 'krems' command is available. This might need to be configurable or use a bundled krems.
-				// For now, assuming 'krems' is in PATH or a full path is provided/discovered.
-				// A better approach for production would be to bundle Krems or have a clear path setting for it.
-				this.plugin.kremsProcess = spawn('krems', ['--run'], { cwd: absoluteLocalPath, shell: true });
-				this.plugin.isKremsRunning = true;
-				updateKremsButtons();
-				setKremsRunFeedback('Krems server started. Output:\n', 'log'); // Initial log message
-				window.open('http://localhost:8080', '_blank');
-
-
-				this.plugin.kremsProcess.stdout?.on('data', (data) => {
-					setKremsRunFeedback(data.toString(), 'log');
-				});
-
-				this.plugin.kremsProcess.stderr?.on('data', (data) => {
-					// Krems might output normal status to stderr too
-					setKremsRunFeedback(`[STDERR] ${data.toString()}`, 'log');
-				});
-
-				this.plugin.kremsProcess.on('error', (err) => {
-					console.error('Failed to start Krems process:', err);
-					setKremsRunFeedback(`Failed to start Krems: ${err.message}`, 'error');
-					this.plugin.isKremsRunning = false;
-					this.plugin.kremsProcess = null;
-					updateKremsButtons();
-				});
-
-				this.plugin.kremsProcess.on('close', (code) => {
-					setKremsRunFeedback(`Krems server exited with code ${code}.`, code === 0 ? 'status' : 'error');
-					this.plugin.isKremsRunning = false;
-					this.plugin.kremsProcess = null;
-					updateKremsButtons();
-				});
-
-			} catch (error) {
-				console.error('Error spawning Krems:', error);
-				setKremsRunFeedback(`Error starting Krems: ${error}`, 'error');
-				this.plugin.isKremsRunning = false; // Ensure state is correct on error
-				this.plugin.kremsProcess = null;
-				updateKremsButtons(); // Re-enable start button if failed
-			}
-		});
-		
-		stopButton.addEventListener('click', async () => {
-			if (this.plugin.kremsProcess) {
-				setKremsRunFeedback('Stopping Krems server...', 'status');
-				this.plugin.kremsProcess.kill(); // SIGTERM by default
-				// 'close' event handler above will update state and buttons.
-				// Forcing state here can be problematic if kill fails or is slow.
-				// Let the 'close' event handle the final state update.
-			} else {
-				setKremsRunFeedback('Krems server is not running.', 'status');
-				this.plugin.isKremsRunning = false; // Ensure consistency
-				updateKremsButtons();
-			}
-		});
-
-		if (!this.plugin.settings.localMarkdownPath) {
-			startButton.disabled = true;
-			stopButton.disabled = true;
-			runSection.createEl('p', {text: 'Please set Local Markdown Directory in settings.', cls: 'krems-warning'});
-		}
-
+		// --- Run Krems Locally functionality removed ---
 
 		// --- Push Site to Repo ---
 		const pushSection = contentEl.createDiv({ cls: 'krems-modal-section' });
@@ -308,6 +205,19 @@ class ActionModal extends Modal {
 			setPushFeedback('Preparing to push site...', 'status');
 
 			try {
+				// Configure git user for this operation if not set
+				try {
+					await this.plugin.execShellCommand('git config user.name', absoluteLocalPath);
+					await this.plugin.execShellCommand('git config user.email', absoluteLocalPath);
+					// If these don't error, user is likely configured.
+					setPushFeedback('Git user identity found. Proceeding...', 'status');
+				} catch (configError) {
+					// User likely not configured, set a default for this repo
+					setPushFeedback('Git user identity not found, setting default for this commit...', 'status');
+					await this.plugin.execShellCommand('git config user.name "Krems Obsidian Plugin"', absoluteLocalPath);
+					await this.plugin.execShellCommand('git config user.email "krems-plugin@example.com"', absoluteLocalPath);
+				}
+
 				setPushFeedback('Adding files (git add .)...', 'status');
 				await this.plugin.execShellCommand('git add .', absoluteLocalPath);
 
