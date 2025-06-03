@@ -1,8 +1,65 @@
-/*
+/* Settings Tab Validation Feedback */
+.krems-setting-feedback {
+	font-size: 0.9em;
+	margin-top: 5px; /* Ensure it's visible below the input */
+	display: block; /* Make sure it takes space */
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.krems-feedback-valid {
+	color: green;
+}
 
-If your plugin does not need CSS, delete this file.
+.krems-feedback-invalid {
+	color: red;
+}
 
-*/
+.krems-input-valid {
+	border-color: green !important; /* Override default Obsidian styles if necessary */
+}
+
+.krems-input-invalid {
+	border-color: red !important; /* Override default Obsidian styles if necessary */
+}
+
+/* Action Modal Styling */
+.krems-modal-section {
+	margin-bottom: 20px;
+	padding-bottom: 15px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.krems-modal-section:last-of-type {
+	border-bottom: none;
+	margin-bottom: 0;
+	padding-bottom: 0;
+}
+
+.krems-modal-section h4 {
+	margin-bottom: 10px;
+}
+
+.krems-modal-section p {
+	font-size: 0.95em;
+	margin-bottom: 10px;
+}
+
+.krems-modal-section button {
+	margin-right: 10px;
+}
+
+.krems-modal-section input[type="text"] {
+	width: 100%;
+	margin-bottom: 10px;
+}
+
+.krems-warning {
+	color: var(--text-warning); /* Or a specific color like orange/yellow */
+	font-size: 0.9em;
+	margin-top: 5px;
+}
+
+.krems-modal-footer {
+	margin-top: 20px;
+	font-size: 0.9em;
+	text-align: center;
+}

@@ -1,94 +1,46 @@
-# Obsidian Sample Plugin
+# Krems Obsidian Publisher Plugin
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+This plugin allows you to manage and publish your [Krems](https://github.com/mreider/krems) static site directly from Obsidian.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## How It Works
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open Sample Modal" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+1.  **Configure:** In the plugin settings, specify:
+    *   Your GitHub repository URL (e.g., `https://github.com/username/your-repo`).
+    *   The path within your Obsidian vault where your Krems site's markdown files are located.
+    *   Optionally, a Git password or Personal Access Token (PAT) if needed for pushing to your repository (PAT is recommended).
+2.  **Actions (via Ribbon Icon):**
+    *   **Initialize Local Directory:** Clones a Krems example site (`https://github.com/mreider/krems-example`) into your specified local directory and updates the Git remote to point to your repository.
+    *   **Start/Stop Krems Locally:** Runs `krems --run` to build and serve your site locally for preview at `http://localhost:8080`.
+    *   **Push Site to GitHub:** Commits and pushes the contents of your local Krems markdown directory to your configured GitHub repository. This typically triggers a GitHub Action (like `krems-deploy-action`) in your repository to build and deploy the site to GitHub Pages.
 
-## First time developing plugins?
+## Prerequisites & Setup
 
-Quick starting guide for new plugin devs:
+### 1. GitHub Repository
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+*   **Create a new GitHub repository** for your Krems site if you don't have one.
+*   **Important:** The plugin pushes your markdown source files to this repository. You'll need a separate mechanism (like the `mreider/krems-deploy-action` GitHub Action) in that repository to build the HTML from these markdown files and deploy it to GitHub Pages.
 
-## Releasing new releases
+### 2. GitHub Pages Setup (Chicken & Egg)
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+*   GitHub Pages typically deploys from a specific branch (e.g., `gh-pages`) and a specific folder (often root or `/docs`).
+*   **Initial Push:** You might need to push content to your repository *once* (e.g., an empty commit or the initial markdown files via this plugin) to create the main branch (e.g., `main` or `master`).
+*   **Set Up GitHub Pages:**
+    1.  Go to your repository on GitHub -> Settings -> Pages.
+    2.  Under "Build and deployment", select "Deploy from a branch" as your source.
+    3.  Choose the branch your deployment action (e.g., `krems-deploy-action`) will push the built HTML site to (commonly `gh-pages`).
+    4.  Select the folder within that branch (usually `/ (root)`).
+    5.  Save changes.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### 3. (Recommended) `krems-deploy-action`
 
-## Adding your plugin to the community plugin list
+*   For automated building and deployment to GitHub Pages, it's highly recommended to set up the `mreider/krems-deploy-action` (or a similar GitHub Action) in your site's GitHub repository. This action will listen for pushes to your main branch, run Krems to build the HTML, and then push the HTML to your `gh-pages` branch (or as configured).
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+## Using the Plugin
 
-## How to use
+1.  Install the plugin in Obsidian.
+2.  Configure the settings.
+3.  Click the "Krems Publisher" (cloud-lightning icon) in the left ribbon to access actions.
 
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+---
 
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint (optional)
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- To use eslint with this project, make sure to install eslint from terminal:
-  - `npm install -g eslint`
-- To use eslint to analyze this project use this command:
-  - `eslint main.ts`
-  - eslint will then create a report with suggestions for code improvement by file and line number.
-- If your source code is in a folder, such as `src`, you can use eslint with this command to analyze all files in that folder:
-  - `eslint .\src\`
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
-```
-
-If you have multiple URLs, you can also do:
-
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
-
-## API Documentation
-
-See https://github.com/obsidianmd/obsidian-api
+*This plugin primarily manages your local Krems markdown source and pushes it to GitHub. The actual live site deployment is typically handled by a GitHub Action in your target repository.*
