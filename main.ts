@@ -1,4 +1,6 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFolder } from 'obsidian';
+import * as path from 'path';
+import { exec, spawn, ChildProcess } from 'child_process';
 
 // interface for settings
 interface KremsObsidianPluginSettings {
@@ -16,7 +18,7 @@ const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
 export default class KremsObsidianPlugin extends Plugin {
 	settings: KremsObsidianPluginSettings;
 	isKremsRunning: boolean = false; // To track Krems server state
-	// TODO: Consider a more robust way to track the child process if needed
+	kremsProcess: ChildProcess | null = null; // To hold the spawned Krems process
 
 	async onload() {
 		await this.loadSettings();
@@ -40,6 +42,26 @@ export default class KremsObsidianPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
+	// Helper to execute shell commands
+	async execShellCommand(command: string, cwd: string): Promise<string> {
+		return new Promise((resolve, reject) => {
+			exec(command, { cwd }, (error, stdout, stderr) => {
+				if (error) {
+					console.error(`exec error: ${error.message}`);
+					reject(`Error: ${error.message}\nStderr: ${stderr}`);
+					return;
+				}
+				if (stderr) {
+					// Sometimes commands output to stderr for non-error info (e.g., git clone progress)
+					// For simplicity here, we'll log it but still resolve if no error object.
+					// A more robust solution might inspect stderr more closely.
+					console.warn(`exec stderr: ${stderr}`);
+				}
+				resolve(stdout.trim());
+			});
+		});
+	}
 }
 
 // Placeholder for ActionModal - to be implemented later
@@ -61,11 +83,72 @@ class ActionModal extends Modal {
 		initSection.createEl('h4', { text: '1. Initialize Local Directory' });
 		initSection.createEl('p', { text: `This will clone krems-example into your specified local directory (${this.plugin.settings.localMarkdownPath || 'not set'}) and set its remote to your GitHub repo.`});
 		const initButton = initSection.createEl('button', { text: 'Initialize Directory' });
+		const initFeedbackEl = initSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px;' } });
+
+		const setInitFeedback = (message: string, type: 'status' | 'success' | 'error') => {
+			initFeedbackEl.textContent = message;
+			initFeedbackEl.className = `krems-feedback krems-feedback-${type}`; // Use CSS classes for styling
+		};
+
 		initButton.addEventListener('click', async () => {
-			new Notice('Initializing directory... (Not implemented yet)');
-			// TODO: Implement git clone, git remote set-url
-			// Validate settings.localMarkdownPath and settings.githubRepoUrl first
+			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
+
+			if (!localMarkdownPath || !githubRepoUrl) {
+				setInitFeedback('Error: Local Markdown Directory and GitHub Repo URL must be set in plugin settings.', 'error');
+				return;
+			}
+
+			// @ts-ignore (Obsidian specific, path might not be recognized by TS alone)
+			const vaultBasePath = this.app.vault.adapter.getBasePath();
+			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
+			
+			// Check if directory already exists and is not empty (simple check)
+			try {
+				// @ts-ignore
+				const adapter = this.app.vault.adapter;
+				if (await adapter.exists(absoluteLocalPath)) {
+					const stat = await adapter.stat(absoluteLocalPath);
+					if (stat && stat.type === 'folder') { // Added null check for stat
+						const files = await adapter.list(absoluteLocalPath);
+						if (files.files.length > 0 || files.folders.length > 0) {
+							setInitFeedback(`Error: Directory '${localMarkdownPath}' already exists and is not empty. Please choose an empty or new directory.`, 'error');
+							return;
+						}
+					} else {
+						setInitFeedback(`Error: Path '${localMarkdownPath}' exists but is not a directory.`, 'error');
+						return;
+					}
+				}
+			} catch (e) {
+				// If stat fails, directory likely doesn't exist, which is fine for clone
+				console.log("Directory check for init:", e);
+			}
+
+
+			initButton.disabled = true;
+			setInitFeedback('Cloning krems-example repository...', 'status');
+
+			try {
+				const cloneCommand = `git clone https://github.com/mreider/krems-example "${absoluteLocalPath}"`;
+				// Note: For git clone, the CWD should be a directory *outside* the one being created.
+				// We'll use the vault base path as a safe CWD for the clone command itself.
+				await this.plugin.execShellCommand(cloneCommand, vaultBasePath);
+				setInitFeedback('Repository cloned. Setting remote URL...', 'status');
+
+				const setRemoteCommand = `git -C "${absoluteLocalPath}" remote set-url origin "${githubRepoUrl}"`;
+				// For this command, CWD can be anything as -C specifies the target repo.
+				// Using vaultBasePath again for consistency.
+				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath);
+				setInitFeedback('Directory initialized successfully!', 'success');
+
+			} catch (error) {
+				console.error('Initialization error:', error);
+				setInitFeedback(`Initialization failed: ${error}`, 'error');
+			} finally {
+				initButton.disabled = false;
+			}
 		});
+
 		if (!this.plugin.settings.localMarkdownPath || !this.plugin.settings.githubRepoUrl) {
 			initButton.disabled = true;
 			initSection.createEl('p', {text: 'Please set Local Markdown Directory and GitHub Repo URL in settings.', cls: 'krems-warning'});
@@ -77,34 +160,108 @@ class ActionModal extends Modal {
 		
 		const startButton = runSection.createEl('button', { text: 'Start Krems Locally' });
 		const stopButton = runSection.createEl('button', { text: 'Stop Krems Server' });
+		const kremsRunFeedbackEl = runSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px; white-space: pre-wrap; background-color: var(--background-secondary); padding: 5px; border-radius: 3px; max-height: 150px; overflow-y: auto;' } });
 
+		const setKremsRunFeedback = (message: string, type: 'status' | 'success' | 'error' | 'log') => {
+			if (type === 'log') {
+				kremsRunFeedbackEl.textContent += message + '\n'; // Append logs
+				kremsRunFeedbackEl.scrollTop = kremsRunFeedbackEl.scrollHeight; // Scroll to bottom
+			} else {
+				kremsRunFeedbackEl.textContent = message; // Overwrite for status/error/success
+			}
+			kremsRunFeedbackEl.className = `krems-feedback krems-feedback-${type}`;
+		};
+		
 		const updateKremsButtons = () => {
 			if (this.plugin.isKremsRunning) {
-				startButton.setText('Krems Running');
+				startButton.setText('Krems Server Running');
 				startButton.disabled = true;
 				stopButton.disabled = false;
 			} else {
 				startButton.setText('Start Krems Locally');
 				startButton.disabled = false;
 				stopButton.disabled = true;
+				// Optionally clear kremsRunFeedbackEl when not running or on explicit stop
 			}
 		};
 		updateKremsButtons(); // Initial state
 
 		startButton.addEventListener('click', async () => {
-			new Notice('Starting Krems... (Not implemented yet)');
-			// TODO: Implement krems --run, manage child process
-			// this.plugin.isKremsRunning = true; // Update state after successful start
-			// updateKremsButtons();
-			// Open localhost:8080
+			const { localMarkdownPath } = this.plugin.settings;
+			if (!localMarkdownPath) {
+				setKremsRunFeedback('Error: Local Markdown Directory must be set in plugin settings.', 'error');
+				return;
+			}
+			if (this.plugin.isKremsRunning || this.plugin.kremsProcess) {
+				setKremsRunFeedback('Krems is already running or process exists.', 'status');
+				return;
+			}
+
+			// @ts-ignore
+			const vaultBasePath = this.app.vault.adapter.getBasePath();
+			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
+
+			setKremsRunFeedback('Starting Krems server...', 'status');
+			startButton.disabled = true; // Disable while attempting to start
+
+			try {
+				// Ensure the 'krems' command is available. This might need to be configurable or use a bundled krems.
+				// For now, assuming 'krems' is in PATH or a full path is provided/discovered.
+				// A better approach for production would be to bundle Krems or have a clear path setting for it.
+				this.plugin.kremsProcess = spawn('krems', ['--run'], { cwd: absoluteLocalPath, shell: true });
+				this.plugin.isKremsRunning = true;
+				updateKremsButtons();
+				setKremsRunFeedback('Krems server started. Output:\n', 'log'); // Initial log message
+				window.open('http://localhost:8080', '_blank');
+
+
+				this.plugin.kremsProcess.stdout?.on('data', (data) => {
+					setKremsRunFeedback(data.toString(), 'log');
+				});
+
+				this.plugin.kremsProcess.stderr?.on('data', (data) => {
+					// Krems might output normal status to stderr too
+					setKremsRunFeedback(`[STDERR] ${data.toString()}`, 'log');
+				});
+
+				this.plugin.kremsProcess.on('error', (err) => {
+					console.error('Failed to start Krems process:', err);
+					setKremsRunFeedback(`Failed to start Krems: ${err.message}`, 'error');
+					this.plugin.isKremsRunning = false;
+					this.plugin.kremsProcess = null;
+					updateKremsButtons();
+				});
+
+				this.plugin.kremsProcess.on('close', (code) => {
+					setKremsRunFeedback(`Krems server exited with code ${code}.`, code === 0 ? 'status' : 'error');
+					this.plugin.isKremsRunning = false;
+					this.plugin.kremsProcess = null;
+					updateKremsButtons();
+				});
+
+			} catch (error) {
+				console.error('Error spawning Krems:', error);
+				setKremsRunFeedback(`Error starting Krems: ${error}`, 'error');
+				this.plugin.isKremsRunning = false; // Ensure state is correct on error
+				this.plugin.kremsProcess = null;
+				updateKremsButtons(); // Re-enable start button if failed
+			}
 		});
 		
 		stopButton.addEventListener('click', async () => {
-			new Notice('Stopping Krems... (Not implemented yet)');
-			// TODO: Implement stopping krems process
-			// this.plugin.isKremsRunning = false; // Update state
-			// updateKremsButtons();
+			if (this.plugin.kremsProcess) {
+				setKremsRunFeedback('Stopping Krems server...', 'status');
+				this.plugin.kremsProcess.kill(); // SIGTERM by default
+				// 'close' event handler above will update state and buttons.
+				// Forcing state here can be problematic if kill fails or is slow.
+				// Let the 'close' event handle the final state update.
+			} else {
+				setKremsRunFeedback('Krems server is not running.', 'status');
+				this.plugin.isKremsRunning = false; // Ensure consistency
+				updateKremsButtons();
+			}
 		});
+
 		if (!this.plugin.settings.localMarkdownPath) {
 			startButton.disabled = true;
 			stopButton.disabled = true;
@@ -117,16 +274,71 @@ class ActionModal extends Modal {
 		pushSection.createEl('h4', { text: '3. Push Site to GitHub' });
 		pushSection.createEl('p', { text: `This will add, commit, and push the content of '${this.plugin.settings.localMarkdownPath || 'not set'}' to your GitHub repo.`});
 		
-		const commitMessageInput = pushSection.createEl('input', { type: 'text', placeholder: 'Optional commit message' });
+		const commitMessageInput = pushSection.createEl('input', { type: 'text', placeholder: 'Optional commit message (default: latest site version)' });
 		commitMessageInput.style.width = '100%';
 		commitMessageInput.style.marginBottom = '10px';
 
 		const pushButton = pushSection.createEl('button', { text: 'Push to GitHub' });
+		const pushFeedbackEl = pushSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px;' } });
+
+		const setPushFeedback = (message: string, type: 'status' | 'success' | 'error') => {
+			pushFeedbackEl.textContent = message;
+			pushFeedbackEl.className = `krems-feedback krems-feedback-${type}`;
+		};
+
 		pushButton.addEventListener('click', async () => {
+			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
+
+			if (!localMarkdownPath || !githubRepoUrl) {
+				setPushFeedback('Error: Local Markdown Directory and GitHub Repo URL must be set in plugin settings.', 'error');
+				return;
+			}
+			
+			// @ts-ignore
+			const vaultBasePath = this.app.vault.adapter.getBasePath();
+			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
+
 			const commitMessage = commitMessageInput.value.trim() || 'latest site version';
-			new Notice(`Pushing with commit: "${commitMessage}" (Not implemented yet)`);
-			// TODO: Implement git add, commit, push
+			// Sanitize commit message to prevent command injection issues if it were ever used unsafely (though here it's an arg)
+			const sanitizedCommitMessage = commitMessage.replace(/"/g, '\\"');
+
+
+			pushButton.disabled = true;
+			commitMessageInput.disabled = true;
+			setPushFeedback('Preparing to push site...', 'status');
+
+			try {
+				setPushFeedback('Adding files (git add .)...', 'status');
+				await this.plugin.execShellCommand('git add .', absoluteLocalPath);
+
+				setPushFeedback(`Committing with message: "${sanitizedCommitMessage}"...`, 'status');
+				// Need to handle cases where there's nothing to commit.
+				// `git commit` will error if there are no changes staged.
+				// A more robust solution checks `git status` first or allows empty commits if desired.
+				// For now, we'll try to commit and catch the error if nothing to commit.
+				try {
+					await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath);
+				} catch (commitError: any) {
+					if (commitError.toString().includes("nothing to commit")) {
+						setPushFeedback('No changes to commit. Proceeding to push...', 'status');
+					} else {
+						throw commitError; // Re-throw other commit errors
+					}
+				}
+				
+				setPushFeedback('Pushing to remote repository...', 'status');
+				await this.plugin.execShellCommand('git push', absoluteLocalPath);
+				setPushFeedback('Site pushed successfully!', 'success');
+
+			} catch (error) {
+				console.error('Push error:', error);
+				setPushFeedback(`Push failed: ${error}`, 'error');
+			} finally {
+				pushButton.disabled = false;
+				commitMessageInput.disabled = false;
+			}
 		});
+
 		if (!this.plugin.settings.localMarkdownPath || !this.plugin.settings.githubRepoUrl) {
 			pushButton.disabled = true;
 			commitMessageInput.disabled = true;
