@@ -237,7 +237,45 @@ class ActionModal extends Modal {
 				}
 				
 				setPushFeedback('Pushing to remote repository...', 'status');
-				await this.plugin.execShellCommand('git push', absoluteLocalPath);
+				let pushCommand = 'git push';
+				const { gitPassword, githubRepoUrl: originalRepoUrl } = this.plugin.settings;
+
+				if (gitPassword && originalRepoUrl.startsWith('https://')) {
+					// Construct authenticated URL: https://<TOKEN>@github.com/user/repo
+					// Need to strip "https://" from originalRepoUrl first
+					const urlWithoutProtocol = originalRepoUrl.substring('https://'.length);
+					const authenticatedUrl = `https://${gitPassword}@${urlWithoutProtocol}`;
+					// It's generally better to push to a named remote and branch,
+					// but for simplicity, if the remote 'origin' is set to the user's repo,
+					// this will push the current branch to its upstream.
+					// A more robust way is to specify the remote and branch:
+					// pushCommand = `git push ${authenticatedUrl} HEAD`; // Pushes current branch to remote default
+					// Or, assuming 'origin' is correctly set by the init step:
+					// First, ensure origin is set to the non-authenticated URL
+					// Then, use the authenticated URL for this specific push command.
+					// This avoids storing the token in the .git/config permanently.
+					// The `git push <authenticated_url> <branch>` is a good way.
+					// Let's assume we want to push the current branch to its counterpart on the remote.
+					// A simple `git push` should use the origin. If origin needs auth, this is one way.
+					// We need to ensure the branch name. For now, let's assume 'main' or current.
+					// The command `git push https://TOKEN@host/path/to/repo.git localBranch:remoteBranch`
+					
+					// Get current branch name
+					let currentBranch = 'main'; // Default
+					try {
+						currentBranch = await this.plugin.execShellCommand('git rev-parse --abbrev-ref HEAD', absoluteLocalPath);
+					} catch (branchError) {
+						console.warn("Could not determine current branch, defaulting to 'main'. Error:", branchError);
+						setPushFeedback('Warning: Could not determine current branch, attempting to push to "main".', 'status');
+					}
+					pushCommand = `git push ${authenticatedUrl} ${currentBranch}`;
+					setPushFeedback(`Pushing to ${originalRepoUrl} with authentication...`, 'status');
+				} else {
+					setPushFeedback(`Pushing to ${originalRepoUrl} (no token/password provided or not HTTPS URL)...`, 'status');
+					// Default push command relies on system's credential manager or SSH keys if remote is SSH
+				}
+				
+				await this.plugin.execShellCommand(pushCommand, absoluteLocalPath);
 				setPushFeedback('Site pushed successfully!', 'success');
 
 			} catch (error) {
