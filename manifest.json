@@ -1,11 +1,11 @@
 {
-	"id": "krems-web-page-publisher",
-	"name": "Krems Web Page Publisher",
-	"version": "1.0.0",
-	"minAppVersion": "0.15.0",
-	"description": "Manage and publish your Krems static site directly from Obsidian.",
-	"author": "Matt Reider",
-	"authorUrl": "https://github.com/mreider",
-	"fundingUrl": "https://ko-fi.com/mreider",
-	"isDesktopOnly": true
+  "id": "krems-web-page-publisher",
+  "name": "Krems Web Page Publisher",
+  "version": "0.1.2",
+  "minAppVersion": "0.15.0",
+  "description": "Manage and publish your Krems static site directly from Obsidian.",
+  "author": "Matt Reider",
+  "authorUrl": "https://github.com/mreider",
+  "fundingUrl": "https://ko-fi.com/mreider",
+  "isDesktopOnly": true
 }
