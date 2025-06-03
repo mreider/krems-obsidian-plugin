@@ -6,7 +6,7 @@ import { exec, spawn, ChildProcess } from 'child_process';
 interface KremsObsidianPluginSettings {
 	githubRepoUrl: string;
 	localMarkdownPath: string;
-	gitPassword?: string;
+	gitPassword?: string; // Should be a PAT
 	gitAuthorName?: string;
 	gitAuthorEmail?: string;
 }
@@ -35,6 +35,8 @@ export default class KremsObsidianPlugin extends Plugin {
 	}
 
 	onunload() {
+		// Make sure to kill any running krems process if the plugin is unloaded
+		// This was relevant when local server was a feature, less so now but good practice.
 		console.log('Krems Obsidian Plugin unloaded.');
 	}
 
@@ -47,28 +49,30 @@ export default class KremsObsidianPlugin extends Plugin {
 	}
 
 	// Helper to execute shell commands
-	async execShellCommand(command: string, cwd: string, customEnv?: NodeJS.ProcessEnv): Promise<string> {
+	async execShellCommand(command: string, cwd: string, customEnv?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
 		return new Promise((resolve, reject) => {
 			const env = customEnv ? { ...process.env, ...customEnv } : process.env;
 			exec(command, { cwd, env }, (error, stdout, stderr) => {
+				const result = { stdout: stdout.trim(), stderr: stderr.trim() };
 				if (error) {
-					console.error(`exec error: ${error.message}`);
-					reject(`Error: ${error.message}\nStderr: ${stderr}`);
+					console.error(`Command failed: ${command}\nError: ${error.message}\nStdout: ${result.stdout}\nStderr: ${result.stderr}`);
+					reject({
+						message: `Command failed: ${command}. Error: ${error.message}`, // More concise message for UI
+						stdout: result.stdout,
+						stderr: result.stderr,
+						originalError: error
+					});
 					return;
 				}
-				if (stderr) {
-					// Sometimes commands output to stderr for non-error info (e.g., git clone progress)
-					// For simplicity here, we'll log it but still resolve if no error object.
-					// A more robust solution might inspect stderr more closely.
-					console.warn(`exec stderr: ${stderr}`);
+				if (result.stderr) {
+					console.warn(`Command successful but stderr present: ${command}\nStderr: ${result.stderr}`);
 				}
-				resolve(stdout.trim());
+				resolve(result);
 			});
 		});
 	}
 }
 
-// Placeholder for ActionModal - to be implemented later
 class ActionModal extends Modal {
 	plugin: KremsObsidianPlugin;
 
@@ -91,7 +95,7 @@ class ActionModal extends Modal {
 
 		const setInitFeedback = (message: string, type: 'status' | 'success' | 'error') => {
 			initFeedbackEl.textContent = message;
-			initFeedbackEl.className = `krems-feedback krems-feedback-${type}`; // Use CSS classes for styling
+			initFeedbackEl.className = `krems-feedback krems-feedback-${type}`;
 		};
 
 		initButton.addEventListener('click', async () => {
@@ -102,50 +106,43 @@ class ActionModal extends Modal {
 				return;
 			}
 
-			// @ts-ignore (Obsidian specific, path might not be recognized by TS alone)
+			// @ts-ignore
 			const vaultBasePath = this.app.vault.adapter.getBasePath();
 			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
 			
-			// Check if directory already exists and is not empty (simple check)
 			try {
 				// @ts-ignore
 				const adapter = this.app.vault.adapter;
 				if (await adapter.exists(absoluteLocalPath)) {
 					const stat = await adapter.stat(absoluteLocalPath);
-					if (stat && stat.type === 'folder') { // Added null check for stat
+					if (stat && stat.type === 'folder') {
 						const files = await adapter.list(absoluteLocalPath);
 						if (files.files.length > 0 || files.folders.length > 0) {
 							setInitFeedback(`Error: Directory '${localMarkdownPath}' already exists and is not empty. Please choose an empty or new directory.`, 'error');
 							return;
 						}
-					} else {
+					} else if (stat) { // It exists but is not a folder
 						setInitFeedback(`Error: Path '${localMarkdownPath}' exists but is not a directory.`, 'error');
 						return;
 					}
+					// If stat is null but exists was true, it's an odd case, treat as non-existent for safety.
 				}
 			} catch (e) {
-				// If stat fails, directory likely doesn't exist, which is fine for clone
-				console.log("Directory check for init:", e);
+				console.log("Directory check for init (error likely means dir doesn't exist, which is OK for clone):", e);
 			}
-
 
 			initButton.disabled = true;
 			setInitFeedback('Cloning krems-example repository...', 'status');
 
 			try {
 				const cloneCommand = `git clone https://github.com/mreider/krems-example "${absoluteLocalPath}"`;
-				// Note: For git clone, the CWD should be a directory *outside* the one being created.
-				// We'll use the vault base path as a safe CWD for the clone command itself.
 				await this.plugin.execShellCommand(cloneCommand, vaultBasePath);
 				setInitFeedback('Repository cloned. Setting remote URL...', 'status');
 
 				const setRemoteCommand = `git -C "${absoluteLocalPath}" remote set-url origin "${githubRepoUrl}"`;
-				// For this command, CWD can be anything as -C specifies the target repo.
-				// Using vaultBasePath again for consistency.
 				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath);
 				setInitFeedback('Remote URL set. Cleaning up README.md...', 'status');
 
-				// Delete README.md from the cloned directory
 				const readmePath = path.join(absoluteLocalPath, 'README.md');
 				// @ts-ignore
 				if (await this.app.vault.adapter.exists(readmePath)) {
@@ -155,10 +152,10 @@ class ActionModal extends Modal {
 				} else {
 					setInitFeedback('Directory initialized successfully! (README.md not found to remove).', 'success');
 				}
-
-			} catch (error) {
+			} catch (error: any) {
 				console.error('Initialization error:', error);
-				setInitFeedback(`Initialization failed: ${error}`, 'error');
+				const errorMsg = error.stderr || error.message || error.toString();
+				setInitFeedback(`Initialization failed: ${errorMsg}`, 'error');
 			} finally {
 				initButton.disabled = false;
 			}
@@ -169,11 +166,9 @@ class ActionModal extends Modal {
 			initSection.createEl('p', {text: 'Please set Local Markdown Directory and GitHub Repo URL in settings.', cls: 'krems-warning'});
 		}
 
-		// --- Run Krems Locally functionality removed ---
-
 		// --- Push Site to Repo ---
 		const pushSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		pushSection.createEl('h4', { text: '3. Push Site to GitHub' });
+		pushSection.createEl('h4', { text: '2. Push Site to GitHub' }); // Renumbered
 		pushSection.createEl('p', { text: `This will add, commit, and push the content of '${this.plugin.settings.localMarkdownPath || 'not set'}' to your GitHub repo.`});
 		
 		const commitMessageInput = pushSection.createEl('input', { type: 'text', placeholder: 'Optional commit message (default: latest site version)' });
@@ -189,7 +184,7 @@ class ActionModal extends Modal {
 		};
 
 		pushButton.addEventListener('click', async () => {
-			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
+			const { localMarkdownPath, githubRepoUrl, gitAuthorName, gitAuthorEmail, gitPassword } = this.plugin.settings;
 
 			if (!localMarkdownPath || !githubRepoUrl) {
 				setPushFeedback('Error: Local Markdown Directory and GitHub Repo URL must be set in plugin settings.', 'error');
@@ -201,34 +196,36 @@ class ActionModal extends Modal {
 			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
 
 			const commitMessage = commitMessageInput.value.trim() || 'latest site version';
-			// Sanitize commit message to prevent command injection issues if it were ever used unsafely (though here it's an arg)
 			const sanitizedCommitMessage = commitMessage.replace(/"/g, '\\"');
-
 
 			pushButton.disabled = true;
 			commitMessageInput.disabled = true;
 			setPushFeedback('Preparing to push site...', 'status');
 
 			try {
+				let cmdOutput;
+
 				setPushFeedback('Adding files (git add .)...', 'status');
-				await this.plugin.execShellCommand('git add .', absoluteLocalPath);
+				cmdOutput = await this.plugin.execShellCommand('git add .', absoluteLocalPath);
+				if (cmdOutput.stderr) { setPushFeedback(`Git add warning: ${cmdOutput.stderr}`, 'status');}
+
 
 				setPushFeedback(`Committing with message: "${sanitizedCommitMessage}"...`, 'status');
-				
-				const authorName = this.plugin.settings.gitAuthorName || "Krems Obsidian Plugin";
-				const authorEmail = this.plugin.settings.gitAuthorEmail || "krems-plugin@example.com";
+				const authorNameForCommit = gitAuthorName || "Krems Obsidian Plugin";
+				const authorEmailForCommit = gitAuthorEmail || "krems-plugin@example.com";
 				
 				const commitEnv: NodeJS.ProcessEnv = {
-					GIT_AUTHOR_NAME: authorName,
-					GIT_AUTHOR_EMAIL: authorEmail,
-					GIT_COMMITTER_NAME: authorName,
-					GIT_COMMITTER_EMAIL: authorEmail
+					GIT_AUTHOR_NAME: authorNameForCommit,
+					GIT_AUTHOR_EMAIL: authorEmailForCommit,
+					GIT_COMMITTER_NAME: authorNameForCommit,
+					GIT_COMMITTER_EMAIL: authorEmailForCommit
 				};
 
 				try {
-					await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath, commitEnv);
+					cmdOutput = await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath, commitEnv);
+					if (cmdOutput.stderr) { setPushFeedback(`Git commit warning: ${cmdOutput.stderr}`, 'status');}
 				} catch (commitError: any) {
-					if (commitError.toString().includes("nothing to commit")) {
+					if (commitError.stderr && commitError.stderr.includes("nothing to commit")) {
 						setPushFeedback('No changes to commit. Proceeding to push...', 'status');
 					} else {
 						throw commitError; // Re-throw other commit errors
@@ -237,49 +234,37 @@ class ActionModal extends Modal {
 				
 				setPushFeedback('Pushing to remote repository...', 'status');
 				let pushCommand = 'git push';
-				const { gitPassword, githubRepoUrl: originalRepoUrl } = this.plugin.settings;
-
-				if (gitPassword && originalRepoUrl.startsWith('https://')) {
-					// Construct authenticated URL: https://<TOKEN>@github.com/user/repo
-					// Need to strip "https://" from originalRepoUrl first
-					const urlWithoutProtocol = originalRepoUrl.substring('https://'.length);
+				
+				if (gitPassword && githubRepoUrl.startsWith('https://')) {
+					const urlWithoutProtocol = githubRepoUrl.substring('https://'.length);
 					const authenticatedUrl = `https://${gitPassword}@${urlWithoutProtocol}`;
-					// It's generally better to push to a named remote and branch,
-					// but for simplicity, if the remote 'origin' is set to the user's repo,
-					// this will push the current branch to its upstream.
-					// A more robust way is to specify the remote and branch:
-					// pushCommand = `git push ${authenticatedUrl} HEAD`; // Pushes current branch to remote default
-					// Or, assuming 'origin' is correctly set by the init step:
-					// First, ensure origin is set to the non-authenticated URL
-					// Then, use the authenticated URL for this specific push command.
-					// This avoids storing the token in the .git/config permanently.
-					// The `git push <authenticated_url> <branch>` is a good way.
-					// Let's assume we want to push the current branch to its counterpart on the remote.
-					// A simple `git push` should use the origin. If origin needs auth, this is one way.
-					// We need to ensure the branch name. For now, let's assume 'main' or current.
-					// The command `git push https://TOKEN@host/path/to/repo.git localBranch:remoteBranch`
 					
-					// Get current branch name
-					let currentBranch = 'main'; // Default
+					let currentBranch = 'main';
 					try {
-						currentBranch = await this.plugin.execShellCommand('git rev-parse --abbrev-ref HEAD', absoluteLocalPath);
-					} catch (branchError) {
-						console.warn("Could not determine current branch, defaulting to 'main'. Error:", branchError);
-						setPushFeedback('Warning: Could not determine current branch, attempting to push to "main".', 'status');
+						cmdOutput = await this.plugin.execShellCommand('git rev-parse --abbrev-ref HEAD', absoluteLocalPath);
+						currentBranch = cmdOutput.stdout;
+						if (cmdOutput.stderr) { setPushFeedback(`Git branch warning: ${cmdOutput.stderr}`, 'status');}
+					} catch (branchError: any) {
+						console.warn("Could not determine current branch, defaulting to 'main'. Error:", branchError.message);
+						setPushFeedback(`Warning: Could not determine current branch (using 'main'). Details: ${branchError.stderr || branchError.message}`, 'status');
 					}
 					pushCommand = `git push ${authenticatedUrl} ${currentBranch}`;
-					setPushFeedback(`Pushing to ${originalRepoUrl} with authentication...`, 'status');
+					setPushFeedback(`Pushing to ${githubRepoUrl} (authenticated)...`, 'status');
 				} else {
-					setPushFeedback(`Pushing to ${originalRepoUrl} (no token/password provided or not HTTPS URL)...`, 'status');
-					// Default push command relies on system's credential manager or SSH keys if remote is SSH
+					setPushFeedback(`Pushing to ${githubRepoUrl} (unauthenticated, ensure credential helper or SSH is set up)...`, 'status');
 				}
 				
-				await this.plugin.execShellCommand(pushCommand, absoluteLocalPath);
-				setPushFeedback('Site pushed successfully!', 'success');
+				cmdOutput = await this.plugin.execShellCommand(pushCommand, absoluteLocalPath);
+				if (cmdOutput.stderr) { 
+					setPushFeedback(`Push successful with warnings: ${cmdOutput.stderr}`, 'success');
+				} else {
+					setPushFeedback('Site pushed successfully!', 'success');
+				}
 
-			} catch (error) {
+			} catch (error: any) {
 				console.error('Push error:', error);
-				setPushFeedback(`Push failed: ${error}`, 'error');
+				const errorMsg = `Push failed: ${error.message || error.toString()}${error.stderr ? `\nStderr: ${error.stderr}` : ''}`;
+				setPushFeedback(errorMsg, 'error');
 			} finally {
 				pushButton.disabled = false;
 				commitMessageInput.disabled = false;
@@ -301,7 +286,6 @@ class ActionModal extends Modal {
 			attr: { target: '_blank', rel: 'noopener noreferrer' }
 		});
 		helpLink.appendText('.');
-
 	}
 
 	onClose() {
@@ -323,13 +307,12 @@ class KremsSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		containerEl.createEl('h2', {text: 'Krems Publisher Settings'});
 
-		// Updated helper function to display validation feedback
 		const setFeedback = (inputEl: HTMLInputElement, feedbackDiv: HTMLElement, message: string, isValid: boolean) => {
 			inputEl.classList.remove('krems-input-valid', 'krems-input-invalid');
-			feedbackDiv.classList.remove('krems-feedback-valid', 'krems-feedback-invalid'); // Ensure classes are on the feedback div
+			feedbackDiv.classList.remove('krems-feedback-valid', 'krems-feedback-invalid');
 			
 			feedbackDiv.textContent = message;
-			feedbackDiv.style.display = message ? 'block' : 'none'; // Show/hide feedback div
+			feedbackDiv.style.display = message ? 'block' : 'none';
 
 			if (message) {
 				inputEl.classList.add(isValid ? 'krems-input-valid' : 'krems-input-invalid');
@@ -337,106 +320,72 @@ class KremsSettingTab extends PluginSettingTab {
 			}
 		};
 		
-		// 1. GitHub Repository URL Setting
-		const repoUrlSetting = new Setting(containerEl)
+		new Setting(containerEl)
 			.setName('GitHub Repository URL')
-			.setDesc('HTTPS URL of your GitHub repository (e.g., https://github.com/username/repo). Do not include .git at the end.');
-		
-		// Create feedback element directly within the setting's control element
-		const repoUrlFeedbackEl = repoUrlSetting.controlEl.createEl('div', {
-			cls: 'krems-setting-feedback', // General class for styling all feedback messages
-			attr: { id: 'repo-url-feedback', style: 'display: none; margin-top: 5px;' } // Initially hidden
-		});
-		
-		repoUrlSetting.addText(text => {
-			text.setPlaceholder('https://github.com/username/repo')
-				.setValue(this.plugin.settings.githubRepoUrl)
-				.onChange(async (value) => {
-					this.plugin.settings.githubRepoUrl = value.trim();
-					await this.plugin.saveSettings();
-					// Immediate validation can be noisy, focusout is better
-				});
+			.setDesc('HTTPS URL of your GitHub repository (e.g., https://github.com/username/repo). Do not include .git at the end.')
+			.addText(text => {
+				const feedbackEl = text.inputEl.parentElement?.createEl('div', { cls: 'krems-setting-feedback', attr: { style: 'display: none; margin-top: 5px;' }}) as HTMLElement;
+				text.setPlaceholder('https://github.com/username/repo')
+					.setValue(this.plugin.settings.githubRepoUrl)
+					.onChange(async (value) => {
+						this.plugin.settings.githubRepoUrl = value.trim();
+						await this.plugin.saveSettings();
+					});
 
-			text.inputEl.addEventListener('focusout', async () => {
-				const value = this.plugin.settings.githubRepoUrl;
-				let isValid = true;
-				let message = '';
-
-				if (!value) {
-					// Allow empty if user doesn't want to use this feature yet
-					setFeedback(text.inputEl, repoUrlFeedbackEl, '', true);
-					return;
-				}
-
-				if (!value.startsWith('https://github.com/')) {
-					isValid = false;
-					message = 'URL must start with https://github.com/';
-				} else if (value.endsWith('.git')) {
-					isValid = false;
-					message = 'URL should not end with .git';
-				} else {
-					// Basic check for structure like https://github.com/user/repo
-					const parts = value.substring('https://github.com/'.length).split('/');
-					if (parts.length < 2 || !parts[0] || !parts[1]) {
-						isValid = false;
-						message = 'Invalid GitHub repository URL format.';
+				text.inputEl.addEventListener('focusout', async () => {
+					const value = this.plugin.settings.githubRepoUrl;
+					let isValid = true;
+					let message = '';
+					if (!value) {
+						setFeedback(text.inputEl, feedbackEl, '', true); return;
 					}
-				}
-				
-				if (isValid && message === '') message = 'URL format is valid.';
-				setFeedback(text.inputEl, repoUrlFeedbackEl, message, isValid);
-			});
-			// Trigger initial validation if value exists
-			if (this.plugin.settings.githubRepoUrl) {
-				text.inputEl.dispatchEvent(new Event('focusout'));
-			}
-		});
-
-		// 2. Local Markdown Directory Setting
-		const localPathSetting = new Setting(containerEl)
-			.setName('Local Markdown Directory')
-			.setDesc('Path to the directory in your vault for your Krems site (e.g., MyKremsSite).');
-
-		// Create feedback element directly within the setting's control element
-		const localPathFeedbackEl = localPathSetting.controlEl.createEl('div', {
-			cls: 'krems-setting-feedback',
-			attr: { id: 'local-path-feedback', style: 'display: none; margin-top: 5px;' } // Initially hidden
-		});
-
-		localPathSetting.addText(text => {
-			text.setPlaceholder('e.g., MyKremsSite or path/to/site')
-				.setValue(this.plugin.settings.localMarkdownPath)
-				.onChange(async (value) => {
-					this.plugin.settings.localMarkdownPath = value.trim();
-					await this.plugin.saveSettings();
+					if (!value.startsWith('https://github.com/')) {
+						isValid = false; message = 'URL must start with https://github.com/';
+					} else if (value.endsWith('.git')) {
+						isValid = false; message = 'URL should not end with .git';
+					} else {
+						const parts = value.substring('https://github.com/'.length).split('/');
+						if (parts.length < 2 || !parts[0] || !parts[1]) {
+							isValid = false; message = 'Invalid GitHub repository URL format.';
+						}
+					}
+					if (isValid && message === '') message = 'URL format is valid.';
+					setFeedback(text.inputEl, feedbackEl, message, isValid);
 				});
-
-			text.inputEl.addEventListener('focusout', async () => {
-				const value = this.plugin.settings.localMarkdownPath;
-				let isValid = false;
-				let message = '';
-
-				if (!value) {
-					setFeedback(text.inputEl, localPathFeedbackEl, '', true); // Allow empty
-					return;
-				}
-				
-				const abstractFile = this.app.vault.getAbstractFileByPath(value);
-				if (abstractFile && abstractFile instanceof TFolder) {
-					isValid = true;
-					message = 'Directory exists.';
-				} else {
-					isValid = false;
-					message = 'Directory not found in the vault.';
-				}
-				setFeedback(text.inputEl, localPathFeedbackEl, message, isValid);
+				if (this.plugin.settings.githubRepoUrl) text.inputEl.dispatchEvent(new Event('focusout'));
 			});
-			if (this.plugin.settings.localMarkdownPath) {
-				text.inputEl.dispatchEvent(new Event('focusout'));
-			}
-		});
 
-		// 3. GitHub Personal Access Token (PAT) Setting
+		new Setting(containerEl)
+			.setName('Local Markdown Directory')
+			.setDesc('Path to the directory in your vault for your Krems site (e.g., MyKremsSite).')
+			.addText(text => {
+				const feedbackEl = text.inputEl.parentElement?.createEl('div', { cls: 'krems-setting-feedback', attr: { style: 'display: none; margin-top: 5px;' }}) as HTMLElement;
+				text.setPlaceholder('e.g., MyKremsSite or path/to/site')
+					.setValue(this.plugin.settings.localMarkdownPath)
+					.onChange(async (value) => {
+						this.plugin.settings.localMarkdownPath = value.trim();
+						await this.plugin.saveSettings();
+					});
+
+				text.inputEl.addEventListener('focusout', async () => {
+					const value = this.plugin.settings.localMarkdownPath;
+					let isValid = false;
+					let message = '';
+					if (!value) {
+						setFeedback(text.inputEl, feedbackEl, '', true); return;
+					}
+					// @ts-ignore
+					const abstractFile = this.app.vault.getAbstractFileByPath(value);
+					if (abstractFile && abstractFile instanceof TFolder) {
+						isValid = true; message = 'Directory exists.';
+					} else {
+						isValid = false; message = 'Directory not found in the vault.';
+					}
+					setFeedback(text.inputEl, feedbackEl, message, isValid);
+				});
+				if (this.plugin.settings.localMarkdownPath) text.inputEl.dispatchEvent(new Event('focusout'));
+			});
+
 		new Setting(containerEl)
 			.setName('GitHub Personal Access Token (PAT)')
 			.setDesc('Required for pushing to HTTPS repositories. Create a PAT on GitHub with "repo" scope. See plugin README for instructions.')
@@ -450,10 +399,9 @@ class KremsSettingTab extends PluginSettingTab {
 					});
 			});
 
-		// Git Author Name Setting
 		new Setting(containerEl)
 			.setName('Git Author Name')
-			.setDesc('Name to use for Git commits (e.g., Your Name). If blank, a default will be used.')
+			.setDesc('Name to use for Git commits (e.g., Your Name). If blank, a default ("Krems Obsidian Plugin") will be used.')
 			.addText(text => text
 				.setPlaceholder('Your Name')
 				.setValue(this.plugin.settings.gitAuthorName || '')
@@ -462,10 +410,9 @@ class KremsSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Git Author Email Setting
 		new Setting(containerEl)
 			.setName('Git Author Email')
-			.setDesc('Email to use for Git commits (e.g., your.email@example.com). If blank, a default will be used.')
+			.setDesc('Email to use for Git commits (e.g., your.email@example.com). If blank, a default ("krems-plugin@example.com") will be used.')
 			.addText(text => text
 				.setPlaceholder('your.email@example.com')
 				.setValue(this.plugin.settings.gitAuthorEmail || '')
@@ -474,7 +421,6 @@ class KremsSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 		
-		// 9. Link to instructions
 		containerEl.createEl('hr');
 		const instructionsLinkPara = containerEl.createEl('p', { cls: 'krems-settings-footer' });
 		instructionsLinkPara.setText('For plugin instructions, troubleshooting, and more information, please visit the ');
@@ -483,6 +429,6 @@ class KremsSettingTab extends PluginSettingTab {
 			href: 'https://github.com/mreider/krems-obsidian-plugin/',
 			attr: { target: '_blank', rel: 'noopener noreferrer' }
 		});
-		instructionsLinkPara.setText('.');
+		instructionsLinkPara.appendText('.');
 	}
 }
