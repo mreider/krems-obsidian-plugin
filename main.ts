@@ -223,12 +223,19 @@ class ActionModal extends Modal {
 
 				try {
 					cmdOutput = await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath, commitEnv);
-					if (cmdOutput.stderr) { setPushFeedback(`Git commit warning: ${cmdOutput.stderr}`, 'status');}
+					if (cmdOutput.stderr) { 
+						setPushFeedback(`Git commit (successful with warnings): ${cmdOutput.stderr}`, 'status');
+					}
+					// If successful, stdout might contain info about files changed, etc.
+					// We can choose to display it or just proceed.
+					// setPushFeedback(`Commit successful: ${cmdOutput.stdout}`, 'status'); 
 				} catch (commitError: any) {
-					if (commitError.stderr && commitError.stderr.includes("nothing to commit")) {
+					// Check if the error is due to "nothing to commit" which is in stdout for this case
+					if (commitError.stdout && commitError.stdout.includes("nothing to commit")) {
 						setPushFeedback('No changes to commit. Proceeding to push...', 'status');
 					} else {
-						throw commitError; // Re-throw other commit errors
+						// For other errors, re-throw to be caught by the outer catch block
+						throw commitError; 
 					}
 				}
 				
