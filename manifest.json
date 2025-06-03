@@ -1,7 +1,7 @@
 {
   "id": "krems-web-page-publisher",
   "name": "Krems Web Page Publisher",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "0.15.0",
   "description": "Manage and publish your Krems static site directly from Obsidian.",
   "author": "Matt Reider",
