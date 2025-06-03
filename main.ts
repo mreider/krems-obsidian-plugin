@@ -7,12 +7,16 @@ interface KremsObsidianPluginSettings {
 	githubRepoUrl: string;
 	localMarkdownPath: string;
 	gitPassword?: string;
+	gitAuthorName?: string;
+	gitAuthorEmail?: string;
 }
 
 const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
 	githubRepoUrl: '',
 	localMarkdownPath: '',
 	gitPassword: '',
+	gitAuthorName: '',
+	gitAuthorEmail: '',
 }
 
 export default class KremsObsidianPlugin extends Plugin {
@@ -43,9 +47,10 @@ export default class KremsObsidianPlugin extends Plugin {
 	}
 
 	// Helper to execute shell commands
-	async execShellCommand(command: string, cwd: string): Promise<string> {
+	async execShellCommand(command: string, cwd: string, customEnv?: NodeJS.ProcessEnv): Promise<string> {
 		return new Promise((resolve, reject) => {
-			exec(command, { cwd }, (error, stdout, stderr) => {
+			const env = customEnv ? { ...process.env, ...customEnv } : process.env;
+			exec(command, { cwd, env }, (error, stdout, stderr) => {
 				if (error) {
 					console.error(`exec error: ${error.message}`);
 					reject(`Error: ${error.message}\nStderr: ${stderr}`);
@@ -205,21 +210,23 @@ class ActionModal extends Modal {
 			setPushFeedback('Preparing to push site...', 'status');
 
 			try {
-				// Unconditionally set git user for this operation to ensure commit succeeds
-				setPushFeedback('Setting Git user identity for this operation...', 'status');
-				await this.plugin.execShellCommand('git config user.name "Krems Obsidian Plugin"', absoluteLocalPath);
-				await this.plugin.execShellCommand('git config user.email "krems-plugin@example.com"', absoluteLocalPath);
-
 				setPushFeedback('Adding files (git add .)...', 'status');
 				await this.plugin.execShellCommand('git add .', absoluteLocalPath);
 
 				setPushFeedback(`Committing with message: "${sanitizedCommitMessage}"...`, 'status');
-				// Need to handle cases where there's nothing to commit.
-				// `git commit` will error if there are no changes staged.
-				// A more robust solution checks `git status` first or allows empty commits if desired.
-				// For now, we'll try to commit and catch the error if nothing to commit.
+				
+				const authorName = this.plugin.settings.gitAuthorName || "Krems Obsidian Plugin";
+				const authorEmail = this.plugin.settings.gitAuthorEmail || "krems-plugin@example.com";
+				
+				const commitEnv: NodeJS.ProcessEnv = {
+					GIT_AUTHOR_NAME: authorName,
+					GIT_AUTHOR_EMAIL: authorEmail,
+					GIT_COMMITTER_NAME: authorName,
+					GIT_COMMITTER_EMAIL: authorEmail
+				};
+
 				try {
-					await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath);
+					await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath, commitEnv);
 				} catch (commitError: any) {
 					if (commitError.toString().includes("nothing to commit")) {
 						setPushFeedback('No changes to commit. Proceeding to push...', 'status');
@@ -442,6 +449,30 @@ class KremsSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					});
 			});
+
+		// Git Author Name Setting
+		new Setting(containerEl)
+			.setName('Git Author Name')
+			.setDesc('Name to use for Git commits (e.g., Your Name). If blank, a default will be used.')
+			.addText(text => text
+				.setPlaceholder('Your Name')
+				.setValue(this.plugin.settings.gitAuthorName || '')
+				.onChange(async (value) => {
+					this.plugin.settings.gitAuthorName = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		// Git Author Email Setting
+		new Setting(containerEl)
+			.setName('Git Author Email')
+			.setDesc('Email to use for Git commits (e.g., your.email@example.com). If blank, a default will be used.')
+			.addText(text => text
+				.setPlaceholder('your.email@example.com')
+				.setValue(this.plugin.settings.gitAuthorEmail || '')
+				.onChange(async (value) => {
+					this.plugin.settings.gitAuthorEmail = value.trim();
+					await this.plugin.saveSettings();
+				}));
 		
 		// 9. Link to instructions
 		containerEl.createEl('hr');
