@@ -46,7 +46,9 @@ Since GitHub no longer supports password authentication for Git operations over 
 2.  Click "Generate new token" (or "Generate new token (classic)").
 3.  Give your token a descriptive name (e.g., "Obsidian Krems Plugin").
 4.  Set an expiration date for the token.
-5.  Under "Select scopes", check the **`repo`** scope. This will grant full control of private and public repositories, which is needed for cloning and pushing.
+5.  Under "Select scopes", check the following scopes:
+    *   **`repo`**: Grants full control of repositories. This is needed for cloning, reading, and pushing changes to your site's repository.
+    *   **`workflow`**: Grants permission to add and update GitHub Actions workflows. This is required if your push operations might create or modify files within the `.github/workflows/` directory of your repository (e.g., if the `krems-example` site you clone includes a workflow, or if you add one).
 6.  Click "Generate token".
 7.  **Important:** Copy your new PAT immediately. You won't be able to see it again.
 8.  Paste this PAT into the "GitHub Personal Access Token (PAT)" field in this plugin's settings.

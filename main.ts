@@ -21,7 +21,6 @@ const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
 
 export default class KremsObsidianPlugin extends Plugin {
 	settings: KremsObsidianPluginSettings;
-	// isKremsRunning and kremsProcess removed as local server functionality is being removed
 
 	async onload() {
 		await this.loadSettings();
@@ -35,8 +34,6 @@ export default class KremsObsidianPlugin extends Plugin {
 	}
 
 	onunload() {
-		// Make sure to kill any running krems process if the plugin is unloaded
-		// This was relevant when local server was a feature, less so now but good practice.
 		console.log('Krems Obsidian Plugin unloaded.');
 	}
 
@@ -49,15 +46,18 @@ export default class KremsObsidianPlugin extends Plugin {
 	}
 
 	// Helper to execute shell commands
-	async execShellCommand(command: string, cwd: string, customEnv?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+	async execShellCommand(command: string, cwd: string, customEnv?: NodeJS.ProcessEnv, commandForDisplay?: string): Promise<{ stdout: string; stderr: string }> {
 		return new Promise((resolve, reject) => {
 			const env = customEnv ? { ...process.env, ...customEnv } : process.env;
+			const displayCmd = commandForDisplay || command; // Use provided display command or the actual command for logging
+			
 			exec(command, { cwd, env }, (error, stdout, stderr) => {
 				const result = { stdout: stdout.trim(), stderr: stderr.trim() };
 				if (error) {
-					console.error(`Command failed: ${command}\nError: ${error.message}\nStdout: ${result.stdout}\nStderr: ${result.stderr}`);
+					// Log the displayCmd to avoid leaking sensitive info from the actual command
+					console.error(`Command failed: ${displayCmd}\nError: ${error.message}\nStdout: ${result.stdout}\nStderr: ${result.stderr}`);
 					reject({
-						message: `Command failed: ${command}. Error: ${error.message}`, // More concise message for UI
+						message: `Command failed: ${displayCmd}. Error: ${error.message}`, 
 						stdout: result.stdout,
 						stderr: result.stderr,
 						originalError: error
@@ -65,7 +65,7 @@ export default class KremsObsidianPlugin extends Plugin {
 					return;
 				}
 				if (result.stderr) {
-					console.warn(`Command successful but stderr present: ${command}\nStderr: ${result.stderr}`);
+					console.warn(`Command successful but stderr present: ${displayCmd}\nStderr: ${result.stderr}`);
 				}
 				resolve(result);
 			});
@@ -121,11 +121,10 @@ class ActionModal extends Modal {
 							setInitFeedback(`Error: Directory '${localMarkdownPath}' already exists and is not empty. Please choose an empty or new directory.`, 'error');
 							return;
 						}
-					} else if (stat) { // It exists but is not a folder
+					} else if (stat) {
 						setInitFeedback(`Error: Path '${localMarkdownPath}' exists but is not a directory.`, 'error');
 						return;
 					}
-					// If stat is null but exists was true, it's an odd case, treat as non-existent for safety.
 				}
 			} catch (e) {
 				console.log("Directory check for init (error likely means dir doesn't exist, which is OK for clone):", e);
@@ -136,11 +135,11 @@ class ActionModal extends Modal {
 
 			try {
 				const cloneCommand = `git clone https://github.com/mreider/krems-example "${absoluteLocalPath}"`;
-				await this.plugin.execShellCommand(cloneCommand, vaultBasePath);
+				await this.plugin.execShellCommand(cloneCommand, vaultBasePath, undefined, 'git clone <example-repo> <path>');
 				setInitFeedback('Repository cloned. Setting remote URL...', 'status');
 
 				const setRemoteCommand = `git -C "${absoluteLocalPath}" remote set-url origin "${githubRepoUrl}"`;
-				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath);
+				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath, undefined, `git remote set-url origin <user-repo-url>`);
 				setInitFeedback('Remote URL set. Cleaning up README.md...', 'status');
 
 				const readmePath = path.join(absoluteLocalPath, 'README.md');
@@ -153,7 +152,7 @@ class ActionModal extends Modal {
 					setInitFeedback('Directory initialized successfully! (README.md not found to remove).', 'success');
 				}
 			} catch (error: any) {
-				console.error('Initialization error:', error);
+				console.error('Initialization error:', error.message || error);
 				const errorMsg = error.stderr || error.message || error.toString();
 				setInitFeedback(`Initialization failed: ${errorMsg}`, 'error');
 			} finally {
@@ -168,7 +167,7 @@ class ActionModal extends Modal {
 
 		// --- Push Site to Repo ---
 		const pushSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		pushSection.createEl('h4', { text: '2. Push Site to GitHub' }); // Renumbered
+		pushSection.createEl('h4', { text: '2. Push Site to GitHub' });
 		pushSection.createEl('p', { text: `This will add, commit, and push the content of '${this.plugin.settings.localMarkdownPath || 'not set'}' to your GitHub repo.`});
 		
 		const commitMessageInput = pushSection.createEl('input', { type: 'text', placeholder: 'Optional commit message (default: latest site version)' });
@@ -207,7 +206,7 @@ class ActionModal extends Modal {
 
 				setPushFeedback('Adding files (git add .)...', 'status');
 				cmdOutput = await this.plugin.execShellCommand('git add .', absoluteLocalPath);
-				if (cmdOutput.stderr) { setPushFeedback(`Git add warning: ${cmdOutput.stderr}`, 'status');}
+				if (cmdOutput.stderr) { setPushFeedback(`Git add (warnings): ${cmdOutput.stderr}`, 'status');}
 
 
 				setPushFeedback(`Committing with message: "${sanitizedCommitMessage}"...`, 'status');
@@ -224,23 +223,19 @@ class ActionModal extends Modal {
 				try {
 					cmdOutput = await this.plugin.execShellCommand(`git commit -m "${sanitizedCommitMessage}"`, absoluteLocalPath, commitEnv);
 					if (cmdOutput.stderr) { 
-						setPushFeedback(`Git commit (successful with warnings): ${cmdOutput.stderr}`, 'status');
+						setPushFeedback(`Git commit (warnings): ${cmdOutput.stderr}`, 'status');
 					}
-					// If successful, stdout might contain info about files changed, etc.
-					// We can choose to display it or just proceed.
-					// setPushFeedback(`Commit successful: ${cmdOutput.stdout}`, 'status'); 
 				} catch (commitError: any) {
-					// Check if the error is due to "nothing to commit" which is in stdout for this case
 					if (commitError.stdout && commitError.stdout.includes("nothing to commit")) {
 						setPushFeedback('No changes to commit. Proceeding to push...', 'status');
 					} else {
-						// For other errors, re-throw to be caught by the outer catch block
 						throw commitError; 
 					}
 				}
 				
 				setPushFeedback('Pushing to remote repository...', 'status');
 				let pushCommand = 'git push';
+				let displayPushCommand = 'git push';
 				
 				if (gitPassword && githubRepoUrl.startsWith('https://')) {
 					const urlWithoutProtocol = githubRepoUrl.substring('https://'.length);
@@ -250,18 +245,19 @@ class ActionModal extends Modal {
 					try {
 						cmdOutput = await this.plugin.execShellCommand('git rev-parse --abbrev-ref HEAD', absoluteLocalPath);
 						currentBranch = cmdOutput.stdout;
-						if (cmdOutput.stderr) { setPushFeedback(`Git branch warning: ${cmdOutput.stderr}`, 'status');}
+						if (cmdOutput.stderr) { setPushFeedback(`Git branch check (warnings): ${cmdOutput.stderr}`, 'status');}
 					} catch (branchError: any) {
 						console.warn("Could not determine current branch, defaulting to 'main'. Error:", branchError.message);
 						setPushFeedback(`Warning: Could not determine current branch (using 'main'). Details: ${branchError.stderr || branchError.message}`, 'status');
 					}
 					pushCommand = `git push ${authenticatedUrl} ${currentBranch}`;
+					displayPushCommand = `git push <authenticated_url> ${currentBranch}`; // For display
 					setPushFeedback(`Pushing to ${githubRepoUrl} (authenticated)...`, 'status');
 				} else {
 					setPushFeedback(`Pushing to ${githubRepoUrl} (unauthenticated, ensure credential helper or SSH is set up)...`, 'status');
 				}
 				
-				cmdOutput = await this.plugin.execShellCommand(pushCommand, absoluteLocalPath);
+				cmdOutput = await this.plugin.execShellCommand(pushCommand, absoluteLocalPath, undefined, displayPushCommand);
 				if (cmdOutput.stderr) { 
 					setPushFeedback(`Push successful with warnings: ${cmdOutput.stderr}`, 'success');
 				} else {
@@ -269,7 +265,7 @@ class ActionModal extends Modal {
 				}
 
 			} catch (error: any) {
-				console.error('Push error:', error);
+				console.error('Push error:', error.message || error); // Log the sanitized message
 				const errorMsg = `Push failed: ${error.message || error.toString()}${error.stderr ? `\nStderr: ${error.stderr}` : ''}`;
 				setPushFeedback(errorMsg, 'error');
 			} finally {
@@ -395,7 +391,7 @@ class KremsSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('GitHub Personal Access Token (PAT)')
-			.setDesc('Required for pushing to HTTPS repositories. Create a PAT on GitHub with "repo" scope. See plugin README for instructions.')
+			.setDesc('Required for pushing to HTTPS repositories. Create a PAT on GitHub with "repo" and "workflow" scopes. See plugin README for instructions.')
 			.addText(text => {
 				text.inputEl.type = 'password';
 				text.setPlaceholder('Enter your GitHub PAT')
