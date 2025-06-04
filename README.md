@@ -1,64 +1,153 @@
-# Krems Obsidian Publisher Plugin
+# Krems Obsidian Plugin
 
-This plugin allows you to manage and publish your [Krems](https://github.com/mreider/krems) static site directly from Obsidian.
+This plugin lets you publish Markdown websites to Github pages. It uses [Krems](https://github.com/mreider/krems) under the hood.
 
-## How It Works
+- Currently in Beta
+- Use [BRAT](https://github.com/TfTHacker/obsidian42-brat) to try it
 
-1.  **Configure:** In the plugin settings, specify:
-    *   Your GitHub repository URL (e.g., `https://github.com/username/your-repo`). **Must be HTTPS.**
-    *   The path within your Obsidian vault where your Krems site's markdown files are located.
-    *   A **GitHub Personal Access Token (PAT)**. This is required for pushing changes to your repository via HTTPS. See "Creating a Personal Access Token" below.
-2.  **Actions (via Ribbon Icon):**
-    *   **Initialize Local Directory:** Clones a Krems example site (`https://github.com/mreider/krems-example`) into your specified local directory and updates the Git remote to point to your repository.
-    *   **Start/Stop Krems Locally:** Runs `krems --run` to build and serve your site locally for preview at `http://localhost:8080`.
-    *   **Push Site to GitHub:** Commits and pushes the contents of your local Krems markdown directory to your configured GitHub repository. This typically triggers a GitHub Action (like `krems-deploy-action`) in your repository to build and deploy the site to GitHub Pages.
+[☕️ Buy me a coffee ☕️](https://coff.ee/mreider)
 
-## Prerequisites & Setup
+## Getting started
 
-### 1. GitHub Repository
+1. Create a Classic Personal Access Token (PAT) in Github with Repo and Workflow privileges
+2. Create an empty Github repository (ex: "my-blog")
+3. Create an empty folder in your vault (ex: "my-blog")
+3. Install the Krems plugin via BRAT
+5. Configure the plugin with:
+    - URL of your Github repository (ex: https://github.com/you/my-blog)
+    - The Github PAT
+    - The name of the empty vault folder (ex: "my-blog")
+6. Enable the plugin
 
-*   **Create a new GitHub repository** for your Krems site if you don't have one.
-*   **Important:** The plugin pushes your markdown source files to this repository. You'll need a separate mechanism (like the `mreider/krems-deploy-action` GitHub Action) in that repository to build the HTML from these markdown files and deploy it to GitHub Pages.
+## Initialize local folder
 
-### 2. GitHub Pages Setup (Chicken & Egg)
+After enabling you should see a Krems button on your ribbon (cloud with lightening bolt).
 
-*   GitHub Pages typically deploys from a specific branch (e.g., `gh-pages`) and a specific folder (often root or `/docs`).
-*   **Initial Push:** You might need to push content to your repository *once* (e.g., an empty commit or the initial markdown files via this plugin) to create the main branch (e.g., `main` or `master`).
-*   **Set Up GitHub Pages:**
-    1.  Go to your repository on GitHub -> Settings -> Pages.
-    2.  Under "Build and deployment", select "Deploy from a branch" as your source.
-    3.  Choose the branch your deployment action (e.g., `krems-deploy-action`) will push the built HTML site to (commonly `gh-pages`).
-    4.  Select the folder within that branch (usually `/ (root)`).
-    5.  Save changes.
+1. Choose the Krems button
+2. Choose Initialize
+3. This will:
+    - Download a small example into the folder you configured
+    - You can see the final result [here](https://mreider.github.io/krems-example/)
+    - Configure the example to target your empty Github repo
+4. (optional) Choose Browse Locally to see the example
+5. This will:
+    - Download the Krems binary (you can cancel if that sounds scary)
+    - Runs the binary to serve the example on localhost:8080
+    - Launches a browser to browse the example locally
+6. Choose Stop Local Server to shut it down
+7. Choose Push to Github
+8. This will:
+    - Push the example to your Github repo
+    - Run a Github Workflow to create a gh-pages branch
+    - Generate the website on that gh-pages branch
+9. Turn on Github Pages in your repository
+    - Push from the gh-pages branch
+    - Use the /(root) folder
+10. View your repository's actions
+    - An action should be running
+    - When it's done your website will be ready
 
-### 3. (Recommended) `krems-deploy-action`
+You can view your website in a browser.
 
-*   For automated building and deployment to GitHub Pages, it's highly recommended to set up the `mreider/krems-deploy-action` (or a similar GitHub Action) in your site's GitHub repository. This action will listen for pushes to your main branch, run Krems to build the HTML, and then push the HTML to your `gh-pages` branch (or as configured).
+For example:
 
-### 4. Creating a Personal Access Token (PAT) for GitHub
+https://your-gh-user.github.io/my-blog/
 
-Since GitHub no longer supports password authentication for Git operations over HTTPS, you **must** use a Personal Access Token (PAT) if your repository URL is HTTPS.
+Note: The config.yaml file contains my example URL, so links will redirect to that URL instead of yours. To fix this, edit your local config.yaml file and redeploy.
 
-1.  Go to your GitHub settings:
-    *   Click your profile picture (top-right) -> Settings.
-    *   In the left sidebar, scroll down to Developer settings.
-    *   Click Personal access tokens -> Tokens (classic).
-2.  Click "Generate new token" (or "Generate new token (classic)").
-3.  Give your token a descriptive name (e.g., "Obsidian Krems Plugin").
-4.  Set an expiration date for the token.
-5.  Under "Select scopes", check the following scopes:
-    *   **`repo`**: Grants full control of repositories. This is needed for cloning, reading, and pushing changes to your site's repository.
-    *   **`workflow`**: Grants permission to add and update GitHub Actions workflows. This is required if your push operations might create or modify files within the `.github/workflows/` directory of your repository (e.g., if the `krems-example` site you clone includes a workflow, or if you add one).
-6.  Click "Generate token".
-7.  **Important:** Copy your new PAT immediately. You won't be able to see it again.
-8.  Paste this PAT into the "GitHub Personal Access Token (PAT)" field in this plugin's settings.
 
-## Using the Plugin
+## Learn from the example and build your own site
 
-1.  Install the plugin in Obsidian.
-2.  Configure the settings.
-3.  Click the "Krems Publisher" (cloud-lightning icon) in the left ribbon to access actions.
+The example site shows all of the functionality of Krems. The stylesheet is fixed and generic for everyone. All Krems sites look the same. If you want to improve it, open a pull request back at the [Krems](https://github.com/mreider/krems) repository and I can update it.
 
+## Images
+
+You must store your images in an /images folder and reference them using normal markdown. You can have subfolders of images to keep them organized.
+
+## Page Types
+
+There are two page types.
+
+## List pages
+
+- show links to other pages
+- only show pages that have dates
+- (usually) have no markdown content
+- (usually) show a list of pages in a single directory
+- (usually) exist as index.md in a directory
+- have the following front matter:
+
+```
 ---
+title: "Krems Home Page"
+type: list
+created: 2025-06-04T09:24
+updated: 2025-06-04T09:39
+---
+```
 
-*This plugin primarily manages your local Krems markdown source and pushes it to GitHub. The actual live site deployment is typically handled by a GitHub Action in your target repository.*
+## List page filters
+
+List page filters expand the functionality of a list page
+
+- shows all pages in all subdirectories with:
+    - specific tags (or...)
+    - specific authors
+- have the following front matter:
+
+
+```
+---
+title: Krems Home Page
+type: list
+tagFilter:
+  - about
+authorFilter:
+  - Matt
+---
+```
+
+## Default pages
+
+- have Markdown content
+- include an (optional) image
+    - is converted to an Open Graph image
+    - displayed as a preview images when someone shares the page URL
+- have the following frontmatter:
+
+```
+---
+title: "Krems City Info"
+date: "2024-11-26"
+image: "/images/krems1.png"
+author: "Matt"
+tags: ["about"]
+---
+```
+
+## About config.yaml
+
+- required at root directory
+- may not appear as a file in obsidian (browse it manually)
+- must have `basePath` if home page is in a subdirectory
+- must have `devPath` to run locally without subdirectory
+- follows example below:
+
+```
+website:
+  url: "https://mreider.github.io/krems-example"
+  name: "Krems Example Site"
+  basePath: "/krems-example"
+  devPath: "/"
+
+menu:
+  - title: "Home"
+    path: "index.md"
+  - title: "Universities"
+    path: "universities/index.md"
+```
+
+## Questions / feedback
+
+- [about Krems static site generation](https://github.com/mreider/krems/issues)
+- [about the Krems Obsidian plugin](https://github.com/mreider/krems-obsidian-plugin/issues)
