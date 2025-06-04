@@ -418,15 +418,27 @@ class ActionModal extends Modal {
 						throw new Error("Security check failed: Path to delete is outside the vault.");
 					}
 					try {
-						// fs.rmSync is simpler if we don't need async here, but let's stick to async patterns
-						await fs.promises.rm(absoluteLocalPath, { recursive: true, force: true });
+						// Use shell command for robust deletion
+						let deleteCommand: string;
+						let displayDeleteCommand: string;
+						if (process.platform === 'win32') {
+							deleteCommand = `rd /s /q "${absoluteLocalPath}"`;
+							displayDeleteCommand = `rd /s /q "<path>"`;
+						} else {
+							deleteCommand = `rm -rf "${absoluteLocalPath}"`;
+							displayDeleteCommand = `rm -rf "<path>"`;
+						}
+						
+						// Execute the delete command from the vault base path, not from within the directory being deleted.
+						await this.plugin.execShellCommand(deleteCommand, vaultBasePath, undefined, displayDeleteCommand);
 						setCleanCloneFeedback(`Directory ${localMarkdownPath} deleted.`, 'status');
-					} catch (rmError: any) {
-						// If fs.promises.rm fails, try to use adapter.trashSystem as a fallback for individual files/folders
-						// This is more complex and less reliable for non-empty dirs.
-						// For now, we'll rely on fs.promises.rm and report error if it fails.
-						console.error(`Error deleting directory with fs.promises.rm: ${absoluteLocalPath}`, rmError);
-						setCleanCloneFeedback(`Failed to delete directory '${localMarkdownPath}': ${rmError.message}. Please ensure the directory is not in use and try again, or remove it manually.`, 'error');
+					} catch (shellRmError: any) {
+						console.error(`Error deleting directory with shell command: ${absoluteLocalPath}`, shellRmError);
+						let errMsg = shellRmError.message || 'Unknown error';
+						if (shellRmError.stderr) {
+							errMsg += `\nStderr: ${shellRmError.stderr}`;
+						}
+						setCleanCloneFeedback(`Failed to delete directory '${localMarkdownPath}' using shell command: ${errMsg}. Please ensure the directory is not in use and try again, or remove it manually.`, 'error');
 						this.cleanCloneButton.disabled = false;
 						return;
 					}
