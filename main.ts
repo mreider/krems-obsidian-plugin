@@ -12,6 +12,9 @@ interface KremsObsidianPluginSettings {
 	gitAuthorEmail?: string;
 	localRunPort?: string; // Stored as string, validated as number
 	localKremsBinaryPath?: string; // Path to downloaded krems binary
+	alternativeCSSDir?: string;
+	alternativeJSDir?: string;
+	alternativeFavicon?: string;
 }
 
 const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
@@ -22,6 +25,9 @@ const DEFAULT_KREMS_SETTINGS: KremsObsidianPluginSettings = {
 	gitAuthorEmail: '',
 	localRunPort: '8080',
 	localKremsBinaryPath: '',
+	alternativeCSSDir: '',
+	alternativeJSDir: '',
+	alternativeFavicon: '',
 }
 
 export default class KremsObsidianPlugin extends Plugin {
@@ -299,17 +305,46 @@ class ActionModal extends Modal {
 
 				const setRemoteCommand = `git -C "${absoluteLocalPath}" remote set-url origin "${githubRepoUrl}"`;
 				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath, undefined, `git remote set-url origin <user-repo-url>`);
-				setInitFeedback('Remote URL set. Cleaning up README.md...', 'status');
+				setInitFeedback('Remote URL set. Creating config.yaml...', 'status');
 
-				const readmePath = path.join(absoluteLocalPath, 'README.md');
+				// Create config.yaml
+				const repoName = githubRepoUrl.substring(githubRepoUrl.lastIndexOf('/') + 1);
+				const siteUrl = `https://${githubRepoUrl.split('/')[2]}/${repoName}`; // Assumes github.com user/repo format
+				
+				let configContent = `website:\n`;
+				configContent += `  url: "${siteUrl}"\n`;
+				configContent += `  name: "${repoName} Site"\n`; // Or a more generic name
+				configContent += `  basePath: "/${repoName}"\n`;
+				configContent += `  devPath: "/"\n`;
+				if (this.plugin.settings.alternativeCSSDir) {
+					configContent += `  alternativeCSSDir: "${this.plugin.settings.alternativeCSSDir}"\n`;
+				}
+				if (this.plugin.settings.alternativeJSDir) {
+					configContent += `  alternativeJSDir: "${this.plugin.settings.alternativeJSDir}"\n`;
+				}
+				if (this.plugin.settings.alternativeFavicon) {
+					configContent += `  alternativeFavicon: "${this.plugin.settings.alternativeFavicon}"\n`;
+				}
+				configContent += `\nmenu:\n`;
+				configContent += `  - title: "Home"\n`;
+				configContent += `    path: "index.md"\n`;
+
+				const configPath = path.join(localMarkdownPath, 'config.yaml'); // Use vault-relative path for adapter
+				// @ts-ignore
+				await this.app.vault.adapter.write(configPath, configContent);
+				setInitFeedback('config.yaml created. Cleaning up example README.md...', 'status');
+
+
+				const readmePath = path.join(localMarkdownPath, 'README.md'); // Use vault-relative path
 				// @ts-ignore
 				if (await this.app.vault.adapter.exists(readmePath)) {
 					// @ts-ignore
 					await this.app.vault.adapter.remove(readmePath);
-					setInitFeedback('Directory initialized successfully! README.md removed.', 'success');
+					setInitFeedback('Directory initialized successfully! README.md removed, config.yaml created.', 'success');
 				} else {
-					setInitFeedback('Directory initialized successfully! (README.md not found to remove).', 'success');
+					setInitFeedback('Directory initialized successfully! config.yaml created. (README.md not found to remove).', 'success');
 				}
+
 			} catch (error: any) {
 				console.error('Initialization error:', error.message || error);
 				const errorMsg = error.stderr || error.message || error.toString();
@@ -754,6 +789,42 @@ class KremsSettingTab extends PluginSettingTab {
 				});
 				if (this.plugin.settings.localRunPort) text.inputEl.dispatchEvent(new Event('focusout'));
 			});
+
+		containerEl.createEl('h3', { text: 'Alternative Asset Paths (Optional)' });
+		containerEl.createEl('p', { text: 'Specify paths relative to your "Local Markdown Directory" for custom CSS, JS, or favicon. If left blank, Krems defaults will be used.' });
+
+		new Setting(containerEl)
+			.setName('Alternative CSS Directory')
+			.setDesc('Path to a directory containing your custom .css files (e.g., "my-styles/css").')
+			.addText(text => text
+				.setPlaceholder('e.g., assets/css')
+				.setValue(this.plugin.settings.alternativeCSSDir || '')
+				.onChange(async (value) => {
+					this.plugin.settings.alternativeCSSDir = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Alternative JS Directory')
+			.setDesc('Path to a directory containing your custom .js files (e.g., "my-scripts/js").')
+			.addText(text => text
+				.setPlaceholder('e.g., assets/js')
+				.setValue(this.plugin.settings.alternativeJSDir || '')
+				.onChange(async (value) => {
+					this.plugin.settings.alternativeJSDir = value.trim();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Alternative Favicon File')
+			.setDesc('Path to your custom favicon file (e.g., "my-images/favicon.png").')
+			.addText(text => text
+				.setPlaceholder('e.g., assets/images/custom-favicon.ico')
+				.setValue(this.plugin.settings.alternativeFavicon || '')
+				.onChange(async (value) => {
+					this.plugin.settings.alternativeFavicon = value.trim();
+					await this.plugin.saveSettings();
+				}));
 		
 		containerEl.createEl('hr');
 		const instructionsLinkPara = containerEl.createEl('p', { cls: 'krems-settings-footer' });
