@@ -192,21 +192,6 @@ class ActionModal extends Modal {
 		this.plugin = plugin;
 	}
 
-	// Checks if an EXISTING vault-relative folder path is empty.
-	// Caller must ensure the path exists and is a folder.
-	async checkIfDirIsEmpty(existingVaultRelativeFolderPath: string): Promise<boolean> {
-		try {
-			// @ts-ignore
-			const adapter = this.app.vault.adapter;
-			const contents = await adapter.list(existingVaultRelativeFolderPath); // Use vault-relative path
-			return contents.files.length === 0 && contents.folders.length === 0;
-		} catch (e) {
-			console.warn(`Error listing contents of '${existingVaultRelativeFolderPath}':`, e);
-			return false; // On error, assume not empty as a safeguard
-		}
-	}
-
-
 	async onOpen() {
 		const {contentEl} = this;
 		contentEl.empty();
@@ -234,43 +219,7 @@ class ActionModal extends Modal {
 			this.initButton.disabled = true;
 			initWarningEl.textContent = 'Please set Local Markdown Directory and GitHub Repo URL in settings.';
 			initWarningEl.style.display = 'block';
-		} else {
-			// @ts-ignore
-			const adapter = this.app.vault.adapter;
-
-			// @ts-ignore - adapter.stat() returns a Stat object or null.
-			adapter.stat(localMarkdownPathForInit).then(async (stat: { type: 'file' | 'folder', size: number, ctime: number, mtime: number } | null) => {
-				if (stat) { // Path exists
-					if (stat.type === 'folder') { // It's a folder
-						const isEmpty = await this.checkIfDirIsEmpty(localMarkdownPathForInit); // Pass vault-relative path
-						if (!isEmpty) {
-							this.initButton.disabled = true;
-							initWarningEl.textContent = `Directory '${localMarkdownPathForInit}' is not empty. Can only initialize empty directories.`;
-							initWarningEl.style.display = 'block';
-						} else {
-							// Directory exists, is a folder, and is empty
-							initWarningEl.style.display = 'none';
-							this.initButton.disabled = false;
-						}
-					} else { // It's a file, not a folder
-						this.initButton.disabled = true;
-						initWarningEl.textContent = `Path '${localMarkdownPathForInit}' is a file, not a directory. Initialization requires a directory path.`;
-						initWarningEl.style.display = 'block';
-					}
-				} else { // Path does not exist (stat is null)
-					initWarningEl.style.display = 'none';
-					this.initButton.disabled = false; // OK to initialize if path doesn't exist
-				}
-			}).catch((err: any) => {
-				// This catch block might be for unexpected errors from adapter.stat,
-				// as non-existence usually results in `null` rather than an error.
-				console.error(`Error checking path '${localMarkdownPathForInit}' for init button state:`, err);
-				this.initButton.disabled = true;
-				initWarningEl.textContent = 'Error checking local directory status. Initialization disabled.';
-				initWarningEl.style.display = 'block';
-			});
 		}
-
 
 		this.initButton.addEventListener('click', async () => {
 			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
@@ -284,15 +233,6 @@ class ActionModal extends Modal {
 			const vaultBasePath = this.app.vault.adapter.getBasePath();
 			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
 		
-			// @ts-ignore
-			if (await this.app.vault.adapter.exists(localMarkdownPath)) {
-				const isEmpty = await this.checkIfDirIsEmpty(localMarkdownPath);
-				if (!isEmpty) {
-					setInitFeedback(`Error: Directory '${localMarkdownPath}' is not empty. Please choose an empty or new directory.`, 'error');
-					return;
-				}
-			}
-		
 			this.initButton.disabled = true;
 			setInitFeedback(`Cloning your repository from ${githubRepoUrl}...`, 'status');
 		
@@ -302,7 +242,10 @@ class ActionModal extends Modal {
 				setInitFeedback('Repository cloned successfully!', 'success');
 			} catch (error: any) {
 				console.error('Cloning error:', error.message || error);
-				const errorMsg = error.stderr || error.message || error.toString();
+				let errorMsg = error.stderr || error.message || error.toString();
+				if (errorMsg.includes('already exists and is not an empty directory')) {
+					errorMsg = `Directory already exists and is not empty. If you have existing changes, please commit and push them. If you want to start fresh, please delete the directory and try again. If there are git conflicts, please resolve them manually.`;
+				}
 				setInitFeedback(`Cloning failed: ${errorMsg}`, 'error');
 			} finally {
 				this.initButton.disabled = false;
