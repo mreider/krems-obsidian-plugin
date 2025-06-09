@@ -184,9 +184,7 @@ class ActionModal extends Modal {
 	initButton: HTMLButtonElement;
 	browseLocallyButton: HTMLButtonElement;
 	stopKremsButton: HTMLButtonElement;
-	cleanCloneButton: HTMLButtonElement; // Added
 	initFeedbackEl: HTMLDivElement;
-	cleanCloneFeedbackEl: HTMLDivElement; // Added
 
 
 	constructor(app: App, plugin: KremsObsidianPlugin) {
@@ -310,126 +308,6 @@ class ActionModal extends Modal {
 				this.initButton.disabled = false;
 			}
 		});
-		
-
-		// --- Clean and Clone Section ---
-		const cleanCloneSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		cleanCloneSection.createEl('h4', { text: 'Clean and Clone Repository' });
-		cleanCloneSection.createEl('p', { text: `This will completely WIPE the local directory '${this.plugin.settings.localMarkdownPath || 'not set'}' and re-clone your site from the master/main branch of your configured GitHub repository. Use with caution!`});
-		cleanCloneSection.createEl('p', {text: 'WARNING: This action is destructive and will delete all local changes in the target directory not pushed to your remote repository.', cls: 'krems-warning'});
-		this.cleanCloneButton = cleanCloneSection.createEl('button', { text: 'Clean and Clone Directory' });
-		this.cleanCloneFeedbackEl = cleanCloneSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px;' } }) as HTMLDivElement;
-		const cleanCloneWarningEl = cleanCloneSection.createEl('p', {cls: 'krems-warning', attr: { style: 'display: none;' }});
-
-		const setCleanCloneFeedback = (message: string, type: 'status' | 'success' | 'error') => {
-			this.cleanCloneFeedbackEl.textContent = message;
-			this.cleanCloneFeedbackEl.className = `krems-feedback krems-feedback-${type}`;
-		};
-
-		const updateCleanCloneButtonState = () => {
-			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
-			if (!localMarkdownPath || !githubRepoUrl) {
-				this.cleanCloneButton.disabled = true;
-				cleanCloneWarningEl.textContent = 'Please set Local Markdown Directory and GitHub Repo URL in settings.';
-				cleanCloneWarningEl.style.display = 'block';
-			} else {
-				this.cleanCloneButton.disabled = false;
-				cleanCloneWarningEl.style.display = 'none';
-			}
-		};
-		updateCleanCloneButtonState();
-
-		this.cleanCloneButton.addEventListener('click', async () => {
-			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
-
-			if (!localMarkdownPath || !githubRepoUrl) {
-				setCleanCloneFeedback('Error: Local Markdown Directory and GitHub Repo URL must be set.', 'error');
-				return;
-			}
-
-			const userConfirmation = confirm(`ARE YOU SURE?\nThis will delete everything in '${localMarkdownPath}' and clone a fresh copy from '${githubRepoUrl}'. This action cannot be undone.`);
-			if (!userConfirmation) {
-				setCleanCloneFeedback('Clean and Clone operation cancelled by user.', 'status');
-				return;
-			}
-
-			this.cleanCloneButton.disabled = true;
-			setCleanCloneFeedback('Starting Clean and Clone operation...', 'status');
-
-			// @ts-ignore
-			const vaultBasePath = this.app.vault.adapter.getBasePath();
-			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
-			// @ts-ignore
-			const adapter = this.app.vault.adapter;
-
-			try {
-				// 1. Delete the directory if it exists
-				if (await adapter.exists(localMarkdownPath)) { // Check using vault-relative path
-					setCleanCloneFeedback(`Deleting existing directory: ${localMarkdownPath}...`, 'status');
-					// Obsidian's adapter.rmdir can only remove empty directories.
-					// We need to remove a potentially non-empty directory.
-					// For simplicity and robustness, we'll use fs.rm for this, which requires an absolute path.
-					// Ensure the path is within the vault to avoid accidental deletion outside.
-					if (!absoluteLocalPath.startsWith(vaultBasePath)) {
-						throw new Error("Security check failed: Path to delete is outside the vault.");
-					}
-					try {
-						// Use shell command for robust deletion
-						let deleteCommand: string;
-						let displayDeleteCommand: string;
-						if (process.platform === 'win32') {
-							deleteCommand = `rd /s /q "${absoluteLocalPath}"`;
-							displayDeleteCommand = `rd /s /q "<path>"`;
-						} else {
-							deleteCommand = `rm -rf "${absoluteLocalPath}"`;
-							displayDeleteCommand = `rm -rf "<path>"`;
-						}
-						
-						// Execute the delete command from the vault base path, not from within the directory being deleted.
-						await this.plugin.execShellCommand(deleteCommand, vaultBasePath, undefined, displayDeleteCommand);
-						setCleanCloneFeedback(`Directory ${localMarkdownPath} deleted.`, 'status');
-					} catch (shellRmError: any) {
-						console.error(`Error deleting directory with shell command: ${absoluteLocalPath}`, shellRmError);
-						let errMsg = shellRmError.message || 'Unknown error';
-						if (shellRmError.stderr) {
-							errMsg += `\nStderr: ${shellRmError.stderr}`;
-						}
-						setCleanCloneFeedback(`Failed to delete directory '${localMarkdownPath}' using shell command: ${errMsg}. Please ensure the directory is not in use and try again, or remove it manually.`, 'error');
-						this.cleanCloneButton.disabled = false;
-						return;
-					}
-				} else {
-					setCleanCloneFeedback(`Directory ${localMarkdownPath} does not exist. Proceeding to clone.`, 'status');
-				}
-				
-				// 2. Ensure parent directory exists for cloning (Obsidian adapter.mkdir might be needed if localMarkdownPath is nested)
-				const parentDir = path.dirname(localMarkdownPath);
-				if (parentDir && parentDir !== '.' && !(await adapter.exists(parentDir))) {
-					await adapter.mkdir(parentDir); // Create parent if it doesn't exist
-				}
-				// We don't need to create localMarkdownPath itself, git clone will do that.
-
-				// 3. Clone the repository
-				setCleanCloneFeedback(`Cloning from ${githubRepoUrl} into ${localMarkdownPath}...`, 'status');
-				
-				const cloneCommand = `git clone --depth 1 ${githubRepoUrl} "${absoluteLocalPath}"`;
-				// We run the command from vaultBasePath, as absoluteLocalPath is where the repo will be cloned.
-				await this.plugin.execShellCommand(cloneCommand, vaultBasePath, undefined, `git clone <repo_url> <path>`);
-
-				setCleanCloneFeedback('Repository cloned successfully.', 'success');
-
-			} catch (error: any) {
-				console.error('Clean and Clone error:', error.message || error);
-				const errorMsg = error.stderr || error.message || error.toString();
-				setCleanCloneFeedback(`Clean and Clone failed: ${errorMsg}`, 'error');
-			} finally {
-				this.cleanCloneButton.disabled = false;
-				// Re-check init button state as the directory content has changed
-				// This logic is complex and might be better handled by re-opening the modal or a dedicated refresh function
-				// For now, we'll leave it to the user to re-open if they want to init again after a clean/clone.
-			}
-		});
-
 
 		// --- Browse Locally Section ---
 		const browseSection = contentEl.createDiv({ cls: 'krems-modal-section' });
@@ -583,7 +461,7 @@ class ActionModal extends Modal {
 
 		// --- Push Site to Repo ---
 		const pushSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		pushSection.createEl('h4', { text: '4. Push Site to GitHub' }); // Renumbered
+		pushSection.createEl('h4', { text: '3. Push Site to GitHub' }); 
 		pushSection.createEl('p', { text: `This will add, commit, and push the content of '${this.plugin.settings.localMarkdownPath || 'not set'}' to your GitHub repo.`});
 		
 		const commitMessageInput = pushSection.createEl('input', { type: 'text', placeholder: 'Optional commit message (default: latest site version)' });
