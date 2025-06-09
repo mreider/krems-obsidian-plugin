@@ -758,8 +758,8 @@ class KremsSettingTab extends PluginSettingTab {
 					if (!value) {
 						setFeedback(text.inputEl, feedbackEl, '', true); return;
 					}
-					// Simple validation for git@github.com:user/repo.git format
-					const gitUrlRegex = /^git@github\.com:[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+(\.git)?$/;
+					// Validation for git@github.com:user/repo.git format, allowing for dots in repo name
+					const gitUrlRegex = /^git@github\.com:[a-zA-Z0-9_-]+\/[a-zA-Z0-9._-]+(\.git)?$/;
 					if (!gitUrlRegex.test(value)) {
 						isValid = false; message = 'Invalid format. Use git@github.com:user/repo.git';
 					} else {
