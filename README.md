@@ -9,51 +9,44 @@ This plugin lets you publish Markdown websites to Github pages. It uses [Krems](
 
 ## Getting started
 
-1. Create a Classic Personal Access Token (PAT) in Github with Repo and Workflow privileges
-2. Create an empty Github repository (ex: "my-blog")
-3. Create an empty folder in your vault (ex: "my-blog")
-3. Install the Krems plugin via BRAT
-5. Configure the plugin with:
-    - URL of your Github repository (ex: https://github.com/you/my-blog)
-    - The Github PAT
-    - The name of the empty vault folder (ex: "my-blog")
-6. Enable the plugin
+1. **Fork the Example Repository**: To get started quickly, fork the [krems-example](https://github.com/mreider/krems-example) repository to your own GitHub account. This will give you a copy of a working Krems site, including the necessary GitHub Actions workflow for publishing.
 
-## Initialize local folder
+2. **Install the Plugin**: Use [BRAT](https://github.com/TfTHacker/obsidian42-brat) to install the Krems Publisher plugin in Obsidian.
 
-After enabling you should see a Krems button on your ribbon (cloud with lightening bolt).
+3. **Create a Local Folder**: Create an empty folder inside your Obsidian vault where you want to clone your forked repository (e.g., "my-blog").
 
-1. Choose the Krems button
-2. Choose Initialize
-3. This will:
-    - Download a small example into the folder you configured
-    - You can see the final result [here](https://mreider.github.io/krems-example/)
-    - Configure the example to target your empty Github repo
-4. (optional) Choose Browse Locally to see the example
-5. This will:
-    - Download the Krems binary (you can cancel if that sounds scary)
-    - Runs the binary to serve the example on localhost:8080
-    - Launches a browser to browse the example locally
-6. Choose Stop Local Server to shut it down
-7. Choose Push to Github
-8. This will:
-    - Push the example to your Github repo
-    - Run a Github Workflow to create a gh-pages branch
-    - Generate the website on that gh-pages branch
-9. Turn on Github Pages in your repository
-    - Push from the gh-pages branch
-    - Use the /(root) folder
-10. View your repository's actions
-    - An action should be running
-    - When it's done your website will be ready
+4. **Configure the Plugin**:
+    - Go to the Krems Publisher plugin settings.
+    - **GitHub Repository URL**: Enter the `git://` URL of your forked repository. You can find this on your repository's page under `Code > Clone > git://`. It should look like `git://github.com/your-username/krems-example.git`.
+    - **Local Markdown Directory**: Enter the name of the empty folder you created in your vault (e.g., "my-blog").
+    - **(Optional) Git Author Name/Email**: Set your name and email for Git commits.
 
-You can view your website in a browser.
+5. **Enable the Plugin**: Make sure the plugin is enabled in Obsidian.
 
-For example:
+## Clone Your Repository
 
-https://your-gh-user.github.io/my-blog/
+After configuring the plugin, you'll find a Krems button on your ribbon (a cloud with a lightning bolt).
 
-Note: The config.yaml file contains my example URL, so links will redirect to that URL instead of yours. To fix this, edit your local config.yaml file and redeploy.
+1.  **Open the Action Modal**: Click the Krems ribbon button.
+2.  **Clone Your Repo**: Click the "Clone Your Repo" button. This will download the files from your forked GitHub repository into the local vault folder you specified.
+3.  **(Optional) Preview Locally**:
+    *   Click "Browse Locally" to preview your site.
+    *   The plugin will download the Krems binary (you can cancel if you prefer not to) and start a local server on `localhost:8080`.
+    *   Your browser will open to the local preview.
+    *   Click "Stop Local Server" when you're done.
+4.  **Push to GitHub**:
+    *   After making changes to your markdown files, open the action modal again.
+    *   Enter a commit message (or use the default).
+    *   Click "Push to GitHub". This will send your changes to your remote repository.
+5.  **Enable GitHub Pages**:
+    *   In your forked repository on GitHub, go to `Settings > Pages`.
+    *   Under "Build and deployment", select `gh-pages` as the branch and `/ (root)` as the folder.
+    *   Save the changes.
+6.  **Check the Workflow**:
+    *   Go to the "Actions" tab in your repository. A workflow should be running to build and deploy your site.
+    *   Once the workflow is complete, your website will be live.
+
+You can view your published website at a URL like: `https://your-github-username.github.io/krems-example/`
 
 
 ## Learn from the example and build your own site

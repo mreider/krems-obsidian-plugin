@@ -214,11 +214,11 @@ class ActionModal extends Modal {
 		contentEl.empty();
 		contentEl.createEl('h2', { text: 'Krems Publisher Actions' });
 
-		// --- Initialize Local Directory ---
+		// --- Clone Your Repo ---
 		const initSection = contentEl.createDiv({ cls: 'krems-modal-section' });
-		initSection.createEl('h4', { text: '1. Initialize Local Directory' });
-		const initDesc = initSection.createEl('p', { text: `This will clone krems-example into your specified local directory (${this.plugin.settings.localMarkdownPath || 'not set'}) and set its remote to your GitHub repo.`});
-		this.initButton = initSection.createEl('button', { text: 'Initialize Directory' });
+		initSection.createEl('h4', { text: '1. Clone Your Repo' });
+		const initDesc = initSection.createEl('p', { text: `This will clone your repo from GitHub into your specified local directory (${this.plugin.settings.localMarkdownPath || 'not set'}).`});
+		this.initButton = initSection.createEl('button', { text: 'Clone Your Repo' });
 		this.initFeedbackEl = initSection.createEl('div', { cls: 'krems-feedback', attr: { style: 'margin-top: 10px;' } }) as HTMLDivElement;
 		const initWarningEl = initSection.createEl('p', {cls: 'krems-warning', attr: { style: 'display: none;' }});
 
@@ -275,86 +275,42 @@ class ActionModal extends Modal {
 
 
 		this.initButton.addEventListener('click', async () => {
-			// Re-check settings in case they changed while modal was open (though unlikely for this flow)
 			const { localMarkdownPath, githubRepoUrl } = this.plugin.settings;
-
+		
 			if (!localMarkdownPath || !githubRepoUrl) {
 				setInitFeedback('Error: Local Markdown Directory and GitHub Repo URL must be set in plugin settings.', 'error');
 				return;
 			}
+		
 			// @ts-ignore
 			const vaultBasePath = this.app.vault.adapter.getBasePath();
 			const absoluteLocalPath = path.join(vaultBasePath, localMarkdownPath);
-
-			// Re-check emptiness before proceeding
+		
 			// @ts-ignore
-			if (await this.app.vault.adapter.exists(absoluteLocalPath)) {
-				const isEmpty = await this.checkIfDirIsEmpty(absoluteLocalPath);
+			if (await this.app.vault.adapter.exists(localMarkdownPath)) {
+				const isEmpty = await this.checkIfDirIsEmpty(localMarkdownPath);
 				if (!isEmpty) {
 					setInitFeedback(`Error: Directory '${localMarkdownPath}' is not empty. Please choose an empty or new directory.`, 'error');
 					return;
 				}
 			}
-
-
+		
 			this.initButton.disabled = true;
-			setInitFeedback('Cloning krems-example repository...', 'status');
-
+			setInitFeedback(`Cloning your repository from ${githubRepoUrl}...`, 'status');
+		
 			try {
-				const cloneCommand = `git clone https://github.com/mreider/krems-example "${absoluteLocalPath}"`;
-				await this.plugin.execShellCommand(cloneCommand, vaultBasePath, undefined, 'git clone <example-repo> <path>');
-				setInitFeedback('Repository cloned. Setting remote URL...', 'status');
-
-				const setRemoteCommand = `git -C "${absoluteLocalPath}" remote set-url origin "${githubRepoUrl}"`;
-				await this.plugin.execShellCommand(setRemoteCommand, vaultBasePath, undefined, `git remote set-url origin <user-repo-url>`);
-				setInitFeedback('Remote URL set. Creating config.yaml...', 'status');
-
-				// Create config.yaml
-				const repoName = githubRepoUrl.substring(githubRepoUrl.lastIndexOf('/') + 1);
-				const siteUrl = `https://${githubRepoUrl.split('/')[2]}/${repoName}`; // Assumes github.com user/repo format
-				
-				let configContent = `website:\n`;
-				configContent += `  url: "${siteUrl}"\n`;
-				configContent += `  name: "${repoName} Site"\n`; // Or a more generic name
-				configContent += `  basePath: "/${repoName}"\n`;
-				configContent += `  devPath: "/"\n`;
-				if (this.plugin.settings.alternativeCSSDir) {
-					configContent += `  alternativeCSSDir: "${this.plugin.settings.alternativeCSSDir}"\n`;
-				}
-				if (this.plugin.settings.alternativeJSDir) {
-					configContent += `  alternativeJSDir: "${this.plugin.settings.alternativeJSDir}"\n`;
-				}
-				if (this.plugin.settings.alternativeFavicon) {
-					configContent += `  alternativeFavicon: "${this.plugin.settings.alternativeFavicon}"\n`;
-				}
-				configContent += `\nmenu:\n`;
-				configContent += `  - title: "Home"\n`;
-				configContent += `    path: "index.md"\n`;
-
-				const configPath = path.join(localMarkdownPath, 'config.yaml'); // Use vault-relative path for adapter
-				// @ts-ignore
-				await this.app.vault.adapter.write(configPath, configContent);
-				setInitFeedback('config.yaml created. Cleaning up example README.md...', 'status');
-
-
-				const readmePath = path.join(localMarkdownPath, 'README.md'); // Use vault-relative path
-				// @ts-ignore
-				if (await this.app.vault.adapter.exists(readmePath)) {
-					// @ts-ignore
-					await this.app.vault.adapter.remove(readmePath);
-					setInitFeedback('Directory initialized successfully! README.md removed, config.yaml created.', 'success');
-				} else {
-					setInitFeedback('Directory initialized successfully! config.yaml created. (README.md not found to remove).', 'success');
-				}
-
+				const cloneCommand = `git clone ${githubRepoUrl} "${absoluteLocalPath}"`;
+				await this.plugin.execShellCommand(cloneCommand, vaultBasePath, undefined, 'git clone <your-repo-url> <path>');
+				setInitFeedback('Repository cloned successfully!', 'success');
 			} catch (error: any) {
-				console.error('Initialization error:', error.message || error);
+				console.error('Cloning error:', error.message || error);
 				const errorMsg = error.stderr || error.message || error.toString();
-				setInitFeedback(`Initialization failed: ${errorMsg}`, 'error');
+				setInitFeedback(`Cloning failed: ${errorMsg}`, 'error');
 			} finally {
 				this.initButton.disabled = false;
 			}
 		});
+		
 
 		// --- Clean and Clone Section ---
 		const cleanCloneSection = contentEl.createDiv({ cls: 'krems-modal-section' });
@@ -456,27 +412,7 @@ class ActionModal extends Modal {
 				// 3. Clone the repository
 				setCleanCloneFeedback(`Cloning from ${githubRepoUrl} into ${localMarkdownPath}...`, 'status');
 				
-				// Transform https://github.com/user/repo to git://github.com/user/repo.git
-				// Or keep original if not a standard GitHub HTTPS URL
-				let cloneUrl = githubRepoUrl;
-				if (githubRepoUrl.startsWith('https://github.com/')) {
-					const pathPart = githubRepoUrl.substring('https://github.com/'.length);
-					if (pathPart.split('/').length === 2 && !pathPart.endsWith('.git')) {
-						cloneUrl = `git://github.com/${pathPart}.git`;
-						setCleanCloneFeedback(`Using git:// protocol: ${cloneUrl}`, 'status');
-					} else {
-						// If it already ends with .git or has more/less parts, use as is (might be a specific fork or different structure)
-						setCleanCloneFeedback(`Using provided HTTPS URL for clone: ${githubRepoUrl}`, 'status');
-					}
-				} else if (githubRepoUrl.startsWith('git@github.com:')) {
-				    // SSH URL, use as is
-				    setCleanCloneFeedback(`Using provided SSH URL for clone: ${githubRepoUrl}`, 'status');
-				}
-
-
-				// The `git clone` command will create the `absoluteLocalPath` directory.
-				// We clone into `absoluteLocalPath`.
-				const cloneCommand = `git clone --depth 1 ${cloneUrl} "${absoluteLocalPath}"`;
+				const cloneCommand = `git clone --depth 1 ${githubRepoUrl} "${absoluteLocalPath}"`;
 				// We run the command from vaultBasePath, as absoluteLocalPath is where the repo will be cloned.
 				await this.plugin.execShellCommand(cloneCommand, vaultBasePath, undefined, `git clone <repo_url> <path>`);
 
@@ -805,10 +741,10 @@ class KremsSettingTab extends PluginSettingTab {
 		
 		new Setting(containerEl)
 			.setName('GitHub Repository URL')
-			.setDesc('HTTPS URL of your GitHub repository (e.g., https://github.com/username/repo). Do not include .git at the end.')
+			.setDesc('Git URL of your forked repository (e.g., git://github.com/username/repo.git).')
 			.addText(text => {
 				const feedbackEl = text.inputEl.parentElement?.createEl('div', { cls: 'krems-setting-feedback', attr: { style: 'display: none; margin-top: 5px;' }}) as HTMLElement;
-				text.setPlaceholder('https://github.com/username/repo')
+				text.setPlaceholder('git://github.com/username/repo.git')
 					.setValue(this.plugin.settings.githubRepoUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.githubRepoUrl = value.trim();
@@ -822,17 +758,13 @@ class KremsSettingTab extends PluginSettingTab {
 					if (!value) {
 						setFeedback(text.inputEl, feedbackEl, '', true); return;
 					}
-					if (!value.startsWith('https://github.com/')) {
-						isValid = false; message = 'URL must start with https://github.com/';
-					} else if (value.endsWith('.git')) {
-						isValid = false; message = 'URL should not end with .git';
+					// Simple validation for git://github.com/user/repo.git format
+					const gitUrlRegex = /^git:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+(\.git)?$/;
+					if (!gitUrlRegex.test(value)) {
+						isValid = false; message = 'Invalid format. Use git://github.com/user/repo.git';
 					} else {
-						const parts = value.substring('https://github.com/'.length).split('/');
-						if (parts.length < 2 || !parts[0] || !parts[1]) {
-							isValid = false; message = 'Invalid GitHub repository URL format.';
-						}
+						message = 'URL format is valid.';
 					}
-					if (isValid && message === '') message = 'URL format is valid.';
 					setFeedback(text.inputEl, feedbackEl, message, isValid);
 				});
 				if (this.plugin.settings.githubRepoUrl) text.inputEl.dispatchEvent(new Event('focusout'));
