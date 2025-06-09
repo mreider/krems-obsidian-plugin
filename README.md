@@ -17,7 +17,7 @@ This plugin lets you publish Markdown websites to Github pages. It uses [Krems](
 
 4. **Configure the Plugin**:
     - Go to the Krems Publisher plugin settings.
-    - **GitHub Repository URL**: Enter the `git://` URL of your forked repository. You can find this on your repository's page under `Code > Clone > git://`. It should look like `git://github.com/your-username/krems-example.git`.
+    - **GitHub Repository URL**: Enter the `git@` URL of your Krems repository. You can find this on your repository's page under `Code > Clone > SSH`. It should look like `git@github.com:your-username/krems-example.git`.
     - **Local Markdown Directory**: Enter the name of the empty folder you created in your vault (e.g., "my-blog").
     - **(Optional) Git Author Name/Email**: Set your name and email for Git commits.
 
@@ -28,7 +28,7 @@ This plugin lets you publish Markdown websites to Github pages. It uses [Krems](
 After configuring the plugin, you'll find a Krems button on your ribbon (a cloud with a lightning bolt).
 
 1.  **Open the Action Modal**: Click the Krems ribbon button.
-2.  **Clone Your Repo**: Click the "Clone Your Repo" button. This will download the files from your forked GitHub repository into the local vault folder you specified.
+2.  **Clone Your Repo**: Click the "Clone Your Repo" button. This will download the files from your Krems GitHub repository into the local vault folder you specified.
 3.  **(Optional) Preview Locally**:
     *   Click "Browse Locally" to preview your site.
     *   The plugin will download the Krems binary (you can cancel if you prefer not to) and start a local server on `localhost:8080`.
@@ -39,7 +39,7 @@ After configuring the plugin, you'll find a Krems button on your ribbon (a cloud
     *   Enter a commit message (or use the default).
     *   Click "Push to GitHub". This will send your changes to your remote repository.
 5.  **Enable GitHub Pages**:
-    *   In your forked repository on GitHub, go to `Settings > Pages`.
+    *   In your Krems repository on GitHub, go to `Settings > Pages`.
     *   Under "Build and deployment", select `gh-pages` as the branch and `/ (root)` as the folder.
     *   Save the changes.
 6.  **Check the Workflow**:

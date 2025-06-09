@@ -741,10 +741,10 @@ class KremsSettingTab extends PluginSettingTab {
 		
 		new Setting(containerEl)
 			.setName('GitHub Repository URL')
-			.setDesc('Git URL of your forked repository (e.g., git://github.com/username/repo.git).')
+			.setDesc('Git URL of your Krems repository (e.g., git@github.com:username/repo.git).')
 			.addText(text => {
 				const feedbackEl = text.inputEl.parentElement?.createEl('div', { cls: 'krems-setting-feedback', attr: { style: 'display: none; margin-top: 5px;' }}) as HTMLElement;
-				text.setPlaceholder('git://github.com/username/repo.git')
+				text.setPlaceholder('git@github.com:username/repo.git')
 					.setValue(this.plugin.settings.githubRepoUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.githubRepoUrl = value.trim();
@@ -758,10 +758,10 @@ class KremsSettingTab extends PluginSettingTab {
 					if (!value) {
 						setFeedback(text.inputEl, feedbackEl, '', true); return;
 					}
-					// Simple validation for git://github.com/user/repo.git format
-					const gitUrlRegex = /^git:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+(\.git)?$/;
+					// Simple validation for git@github.com:user/repo.git format
+					const gitUrlRegex = /^git@github\.com:[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+(\.git)?$/;
 					if (!gitUrlRegex.test(value)) {
-						isValid = false; message = 'Invalid format. Use git://github.com/user/repo.git';
+						isValid = false; message = 'Invalid format. Use git@github.com:user/repo.git';
 					} else {
 						message = 'URL format is valid.';
 					}
