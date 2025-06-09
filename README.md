@@ -17,7 +17,7 @@ This plugin lets you publish Markdown websites to Github pages. It uses [Krems](
 
 4. **Configure the Plugin**:
     - Go to the Krems Publisher plugin settings.
-    - **GitHub Repository URL**: Enter the `git@` URL of your Krems repository. You can find this on your repository's page under `Code > Clone > SSH`. It should look like `git@github.com:your-username/krems-example.git`.
+    - **GitHub Repository URL**: Enter the `git@` URL of your Krems repository. You can find this on your repository's page under `Code > Clone > SSH`. It should look like `git@github.com:your-username/your-repo`.
     - **Local Markdown Directory**: Enter the name of the empty folder you created in your vault (e.g., "my-blog").
     - **(Optional) Git Author Name/Email**: Set your name and email for Git commits.
 
