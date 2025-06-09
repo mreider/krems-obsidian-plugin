@@ -1,7 +1,7 @@
 {
   "id": "krems-publisher",
   "name": "Krems Publisher",
-  "version": "0.1.11",
+  "version": "0.1.13",
   "minAppVersion": "0.15.0",
   "description": "Manage and publish markdown web sites",
   "author": "Matt Reider",
