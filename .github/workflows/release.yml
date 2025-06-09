@@ -2,8 +2,8 @@ name: Create Plugin Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
 
 jobs:
   build-and-release:
@@ -28,15 +28,55 @@ jobs:
       - name: Build plugin
         run: npm run build # Assumes 'npm run build' compiles main.ts to main.js
 
+      - name: Generate version string
+        id: version
+        run: echo "VERSION_NUMBER=0.1.${{ github.run_number }}" >> $GITHUB_OUTPUT
+
+      - name: Update manifest.json
+        run: |
+          jq --arg version "${{ steps.version.outputs.VERSION_NUMBER }}" '.version = $version' manifest.json > manifest.json.tmp && mv manifest.json.tmp manifest.json
+          echo "Updated manifest.json with version ${{ steps.version.outputs.VERSION_NUMBER }}"
+          cat manifest.json
+
+      - name: Update versions.json
+        run: |
+          jq --arg version "${{ steps.version.outputs.VERSION_NUMBER }}" '. += {($version): $version}' versions.json > versions.json.tmp && mv versions.json.tmp versions.json
+          echo "Updated versions.json with version ${{ steps.version.outputs.VERSION_NUMBER }}"
+          cat versions.json
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "actions@github.com"
+
+      - name: Commit updated version files
+        run: |
+          git add manifest.json versions.json
+          # Check if there are changes to commit
+          if ! git diff --staged --quiet; then
+            git commit -m "Bump version to ${{ steps.version.outputs.VERSION_NUMBER }}"
+          else
+            echo "No version changes to commit."
+          fi
+      
+      - name: Push commit
+        run: git push origin main
+
+      - name: Create Git tag
+        run: git tag -a "v${{ steps.version.outputs.VERSION_NUMBER }}" -m "Version ${{ steps.version.outputs.VERSION_NUMBER }}"
+
+      - name: Push tag
+        run: git push origin "v${{ steps.version.outputs.VERSION_NUMBER }}"
+
       - name: Create GitHub Release
         id: create_release
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.ref }}
-          release_name: "Release ${{ github.ref }}"
-          body: "Automated release for ${{ github.ref }}."
+          tag_name: "v${{ steps.version.outputs.VERSION_NUMBER }}"
+          release_name: "Release v${{ steps.version.outputs.VERSION_NUMBER }}"
+          body: "Automated release for version ${{ steps.version.outputs.VERSION_NUMBER }}."
           draft: false
           prerelease: false
 
